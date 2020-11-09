@@ -1,10 +1,13 @@
-use super::types::Inspection;
-use super::{
+use crate::{
     addresses::UNISWAP,
-    erc20::ERC20,
-    types::{Classification, Protocol, SpecificAction, Trade},
-    ArbitrageReducer, Inspector, Reducer,
+    inspectors::{ArbitrageReducer, ERC20},
+    traits::{Inspector, Reducer},
+    types::{
+        actions::{SpecificAction, Trade},
+        Classification, Inspection, Protocol,
+    },
 };
+
 use ethers::{
     abi::Abi,
     contract::{decode_fn as abi_decode, BaseContract},
@@ -79,7 +82,7 @@ impl Reducer for Uniswap {
                                         t2: t2.clone(),
                                     };
 
-                                    // TODO: Figur eout what the trace should be here
+                                    // TODO: Figure out what the trace should be here
                                     **a1 = Classification::new(action, Vec::new());
 
                                     // Since we paired with the next element,
@@ -211,7 +214,7 @@ impl Uniswap {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::inspectors::{addresses::ADDRESSBOOK, types::Status};
+    use crate::{addresses::ADDRESSBOOK, types::Status};
 
     use crate::test_helpers::*;
 
@@ -248,46 +251,20 @@ pub mod tests {
         let mut inspection =
             get_trace("0xd9306dc8c1230cc0faef22a8442d0994b8fc9a8f4c9faeab94a9a7eac8e59710");
         let uni = Uniswap::new();
+        dbg!(&inspection);
         uni.inspect(&mut inspection);
         dbg!(&inspection);
 
         assert_eq!(inspection.known().len(), 1);
-        let arb = to_arb(&inspection.actions[1]);
+        let arb = to_arb(&inspection.actions[2]);
         assert!(arb.profit > 0.into());
 
-        // the intiial call made by the user to the contract
-        assert_eq!(inspection.unknown().len(), 1);
+        // the initial call and the delegate call
+        assert_eq!(inspection.unknown().len(), 2);
         assert_eq!(
             inspection.protocols,
             vec![Protocol::Uniswap, Protocol::Sushiswap]
         );
-    }
-
-    #[test]
-    #[ignore]
-    // call that starts from a bot but has a uniswap sub-trace
-    // This uses AAVE
-    // https://etherscan.io/tx/0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f
-    // 99k USDC -> 281 ETH -> 5.7 YFI trade
-    // Liquidator Repay -> 5.7 YFI
-    // Liquidation -> 292 ETH
-    // Profit: 11 ETH
-    fn subtrace_parse() {
-        let mut inspection =
-            get_trace("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
-        let uni = Uniswap::new();
-        uni.inspect(&mut inspection);
-
-        use crate::inspectors::Aave;
-        let aave = Aave::new();
-        aave.inspect(&mut inspection);
-
-        dbg!(&inspection);
-        // dbg!(&inspection.known());
-        // dbg!(inspection.known());
-        // dbg!(inspection.unknown().len());
-        // dbg!(inspection.known().len());
-        // dbg!(inspection.protocols);
     }
 
     // https://etherscan.io/tx/0xddbf97f758bd0958487e18d9e307cd1256b1ad6763cd34090f4c9720ba1b4acc
@@ -296,6 +273,7 @@ pub mod tests {
         let mut inspection = read_trace("triangular_arb.json");
         let uni = Uniswap::new();
 
+        dbg!(&inspection);
         uni.inspect(&mut inspection);
         dbg!(&inspection);
 

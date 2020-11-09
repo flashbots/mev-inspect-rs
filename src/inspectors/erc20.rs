@@ -1,6 +1,6 @@
-use super::{
+use crate::{
     addresses::{ETH, WETH},
-    types::{Deposit, SpecificAction, Transfer, Withdrawal},
+    types::actions::{Deposit, SpecificAction, Transfer, Withdrawal},
 };
 use ethers::{
     abi::parse_abi,
@@ -9,6 +9,7 @@ use ethers::{
 };
 
 #[derive(Debug, Clone)]
+/// Decodes ERC20 calls
 pub struct ERC20(BaseContract);
 
 impl ERC20 {

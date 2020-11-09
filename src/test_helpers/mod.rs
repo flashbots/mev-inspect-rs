@@ -1,5 +1,6 @@
-use crate::inspectors::types::{
-    Arbitrage, Classification, Inspection, SpecificAction, Trade, Transfer,
+use crate::types::{
+    actions::{Arbitrage, SpecificAction, Trade, Transfer},
+    Classification, Inspection,
 };
 use ethers::types::{Trace, TxHash};
 use once_cell::sync::Lazy;

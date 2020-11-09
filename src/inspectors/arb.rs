@@ -1,7 +1,8 @@
-use super::types::Inspection;
-use super::{
-    prune,
-    types::{Arbitrage, Classification, SpecificAction},
+use crate::{
+    types::{
+        actions::{Arbitrage, SpecificAction},
+        Classification, Inspection,
+    },
     Reducer,
 };
 
@@ -86,6 +87,6 @@ impl Reducer for ArbitrageReducer {
             }
         }
 
-        prune(inspection);
+        inspection.prune();
     }
 }

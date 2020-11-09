@@ -1,7 +1,11 @@
-use super::{
-    addresses::ETH,
-    types::{is_subtrace, Liquidation, Protocol, SpecificAction},
-    Classification, Inspection, Inspector, Reducer,
+use crate::{
+    addresses::{AAVE_LENDING_POOL_CORE, ETH},
+    is_subtrace,
+    types::{
+        actions::{Liquidation, SpecificAction},
+        Classification, Inspection, Protocol,
+    },
+    Inspector, Reducer,
 };
 use ethers::{
     abi::Abi,
@@ -9,8 +13,11 @@ use ethers::{
     types::{Address, U256},
 };
 
+type LiquidationCall = (Address, Address, Address, U256, bool);
+
 pub struct Aave {
     pub pool: BaseContract,
+    // TODO: Unused?
     pub core: BaseContract,
 }
 
@@ -30,8 +37,6 @@ impl Aave {
 }
 
 impl Reducer for Aave {
-    // Prunes a liquidation's subtraces and also populates the `received_amount`
-    // field
     fn reduce(&self, inspection: &mut Inspection) {
         let actions = inspection.actions.clone();
         let mut prune = Vec::new();
@@ -75,7 +80,9 @@ impl Reducer for Aave {
             }
         });
 
-        // Remove the required subtraces
+        // Remove the traces which were subtraces of liquidation txs. Assuming
+        // the Uniswap inspector has been executed first, there will be a transfer
+        // which will populate the liquidation's received amount
         prune
             .iter()
             .for_each(|p| inspection.actions[*p] = Classification::Prune);
@@ -97,8 +104,6 @@ impl Inspector for Aave {
     }
 }
 
-type LiquidationCall = (Address, Address, Address, U256, bool);
-
 impl Aave {
     fn inspect_one(&self, action: &mut Classification) -> Option<Protocol> {
         let mut res = None;
@@ -106,14 +111,7 @@ impl Aave {
             // TODO: Make this understand liquidations
             Classification::Unknown(ref mut calltrace) => {
                 let call = calltrace.as_ref();
-                // Cull by setting the action to Prune
-                // Lending pool core 0x3dfd23A6c5E8BbcFc9581d2E864a68feb6a076d3
-                // Lending pool 0x398eC7346DcD622eDc5ae82352F02bE94C62d119
-                if call.to
-                    == "398eC7346DcD622eDc5ae82352F02bE94C62d119"
-                        .parse::<Address>()
-                        .unwrap()
-                {
+                if call.to == *AAVE_LENDING_POOL_CORE {
                     res = Some(Protocol::Aave);
 
                     // https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol#L805

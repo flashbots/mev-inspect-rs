@@ -13,6 +13,7 @@ itertools = "0.9.0"
 tokio = { version = "0.2", features = ["macros"] }
 anyhow = "1.0.34"
 rustc-hex = "2.1.0"
+thiserror = "1.0.22"
 
 [dev-dependencies]
 rustc-hex = "2.1.0"

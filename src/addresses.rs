@@ -5,6 +5,13 @@ use ethers::types::Address;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
+pub fn lookup(address: Address) -> String {
+    ADDRESSBOOK
+        .get(&address)
+        .unwrap_or(&format!("{:?}", &address).to_string())
+        .clone()
+}
+
 fn insert_many<T: Clone>(
     mut map: HashMap<Address, T>,
     addrs: &[&str],
@@ -15,7 +22,6 @@ fn insert_many<T: Clone>(
     }
     map
 }
-
 // Uniswap-like addresses
 pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     let map = HashMap::new();
@@ -40,6 +46,9 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
 
     map
 });
+
+pub static AAVE_LENDING_POOL_CORE: Lazy<Address> =
+    Lazy::new(|| parse_address("0x3dfd23A6c5E8BbcFc9581d2E864a68feb6a076d3"));
 
 pub static WETH: Lazy<Address> =
     Lazy::new(|| parse_address("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"));
