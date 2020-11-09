@@ -49,9 +49,11 @@ impl BatchInspector {
 mod tests {
     use super::*;
     use crate::{
+        addresses::ADDRESSBOOK,
         inspectors::{Aave, Uniswap},
         test_helpers::*,
     };
+    use ethers::types::U256;
 
     #[test]
     #[ignore]
@@ -66,14 +68,23 @@ mod tests {
             get_trace("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
 
         let inspector = BatchInspector::new(vec![Box::new(Uniswap::new()), Box::new(Aave::new())]);
-
         inspector.inspect(&mut inspection);
 
-        dbg!(&inspection);
-        // dbg!(&inspection.known());
-        // dbg!(inspection.known());
-        // dbg!(inspection.unknown().len());
-        // dbg!(inspection.known().len());
-        // dbg!(inspection.protocols);
+        let known = inspection.known();
+
+        let liquidation = known
+            .iter()
+            .find_map(|action| action.as_ref().profitable_liquidation())
+            .unwrap();
+        assert_eq!(
+            liquidation.profit,
+            U256::from_dec_str("11050220339336343871").unwrap()
+        );
+
+        assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "ETH");
+        assert_eq!(
+            ADDRESSBOOK.get(&liquidation.as_ref().sent_token).unwrap(),
+            "YFI"
+        );
     }
 }

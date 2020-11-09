@@ -34,6 +34,8 @@ impl AsRef<Inspection> for Evaluation {
 }
 
 impl Evaluation {
+    /// Takes an inspection and reduces it to the data format which will be pushed
+    /// to the database.
     pub async fn new<T: Middleware>(
         inspection: Inspection,
         provider: &T,
@@ -65,6 +67,10 @@ impl Evaluation {
                         profit += arb.profit;
                     }
                     SpecificAction::Liquidation(_) => actions.push(ActionType::Liquidation),
+                    SpecificAction::ProfitableLiquidation(liq) => {
+                        actions.push(ActionType::Liquidation);
+                        profit += liq.profit;
+                    }
                     _ => (),
                 },
                 _ => (),

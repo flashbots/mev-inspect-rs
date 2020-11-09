@@ -13,9 +13,10 @@ pub enum SpecificAction {
 
     Transfer(Transfer),
     Trade(Trade),
+    Liquidation(Liquidation),
 
     Arbitrage(Arbitrage),
-    Liquidation(Liquidation),
+    ProfitableLiquidation(ProfitableLiquidation),
 
     Unclassified(Bytes),
 }
@@ -52,6 +53,13 @@ impl SpecificAction {
     pub fn liquidation(&self) -> Option<&Liquidation> {
         match self {
             SpecificAction::Liquidation(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
+    pub fn profitable_liquidation(&self) -> Option<&ProfitableLiquidation> {
+        match self {
+            SpecificAction::ProfitableLiquidation(inner) => Some(inner),
             _ => None,
         }
     }
@@ -198,6 +206,35 @@ impl fmt::Debug for Liquidation {
             .field("received_amount", &self.received_amount)
             .field("liquidated_user", &lookup(self.liquidated_user))
             .field("from", &lookup(self.from))
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialOrd, PartialEq)]
+pub struct ProfitableLiquidation {
+    pub liquidation: Liquidation,
+    pub profit: U256,
+    pub token: Address,
+}
+
+impl AsRef<Liquidation> for ProfitableLiquidation {
+    fn as_ref(&self) -> &Liquidation {
+        &self.liquidation
+    }
+}
+
+impl From<ProfitableLiquidation> for SpecificAction {
+    fn from(src: ProfitableLiquidation) -> Self {
+        SpecificAction::ProfitableLiquidation(src)
+    }
+}
+
+impl fmt::Debug for ProfitableLiquidation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProfitableLiquidation")
+            .field("liquidation", &self.liquidation)
+            .field("profit", &self.profit)
+            .field("token", &lookup(self.token))
             .finish()
     }
 }

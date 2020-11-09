@@ -257,7 +257,7 @@ pub mod tests {
 
         assert_eq!(inspection.known().len(), 1);
         let arb = to_arb(&inspection.actions[2]);
-        assert!(arb.profit > 0.into());
+        assert!(arb.profit == U256::from_dec_str("626678385524850545").unwrap());
 
         // the initial call and the delegate call
         assert_eq!(inspection.unknown().len(), 2);

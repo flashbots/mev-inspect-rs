@@ -47,8 +47,8 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     map
 });
 
-pub static AAVE_LENDING_POOL_CORE: Lazy<Address> =
-    Lazy::new(|| parse_address("0x3dfd23A6c5E8BbcFc9581d2E864a68feb6a076d3"));
+pub static AAVE_LENDING_POOL: Lazy<Address> =
+    Lazy::new(|| parse_address("398eC7346DcD622eDc5ae82352F02bE94C62d119"));
 
 pub static WETH: Lazy<Address> =
     Lazy::new(|| parse_address("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"));
