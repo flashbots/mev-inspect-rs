@@ -63,7 +63,7 @@ mod tests {
     // Liquidator Repay -> 5.7 YFI
     // Liquidation -> 292 ETH
     // Profit: 11 ETH
-    fn subtrace_parse() {
+    fn aave_uni_liquidation() {
         let mut inspection =
             get_trace("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
 
@@ -76,6 +76,7 @@ mod tests {
             .iter()
             .find_map(|action| action.as_ref().profitable_liquidation())
             .unwrap();
+        dbg!(&liquidation);
         assert_eq!(
             liquidation.profit,
             U256::from_dec_str("11050220339336343871").unwrap()
@@ -86,5 +87,15 @@ mod tests {
             ADDRESSBOOK.get(&liquidation.as_ref().sent_token).unwrap(),
             "YFI"
         );
+    }
+
+    #[test]
+    // https://etherscan.io/tx/0x1d9a2c8bfcd9f6e133c490d892fe3869bada484160a81966e645616cfc21652a
+    fn balancer_uni_arb() {
+        let mut inspection =
+            get_trace("0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627");
+        let uni = Uniswap::new();
+        uni.inspect(&mut inspection);
+        dbg!(&inspection);
     }
 }
