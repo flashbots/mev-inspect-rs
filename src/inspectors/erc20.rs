@@ -86,29 +86,25 @@ impl ERC20 {
                 to: trace_call.from,
                 amount,
             }))
+        } else if trace_call
+            .input
+            .as_ref()
+            .starts_with(&ethers::utils::id("deposit()"))
+        {
+            Some(SpecificAction::WethDeposit(Deposit {
+                from: trace_call.from,
+                amount: trace_call.value,
+            }))
+        } else if trace_call.value > 0.into() && trace_call.from != *WETH {
+            // ETH transfer
+            Some(SpecificAction::Transfer(Transfer {
+                from: trace_call.from,
+                to: trace_call.to,
+                amount: trace_call.value,
+                token: *ETH,
+            }))
         } else {
-            if trace_call
-                .input
-                .as_ref()
-                .starts_with(&ethers::utils::id("deposit()"))
-            {
-                Some(SpecificAction::WethDeposit(Deposit {
-                    from: trace_call.from,
-                    amount: trace_call.value,
-                }))
-            } else {
-                // ETH transfer
-                if trace_call.value > 0.into() && trace_call.from != *WETH {
-                    Some(SpecificAction::Transfer(Transfer {
-                        from: trace_call.from,
-                        to: trace_call.to,
-                        amount: trace_call.value,
-                        token: *ETH,
-                    }))
-                } else {
-                    None
-                }
-            }
+            None
         }
     }
 }

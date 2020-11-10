@@ -1,4 +1,4 @@
-use crate::types::Inspection;
+use crate::types::{Inspection, Status};
 
 pub trait Reducer {
     /// By default the reducer is empty. A consumer may optionally
@@ -25,6 +25,12 @@ pub trait Inspector: Reducer {
         // 4. Prune again after the reduction
         inspection.prune();
 
-        // dbg!(&inspection);
+        // If there are no classified actions and if there were checked protocols
+        // in this transaction, then that means there was an arb check which reverted early
+        if !inspection.protocols.is_empty()
+            && inspection.actions.iter().any(|x| x.to_action().is_none())
+        {
+            inspection.status = Status::Checked;
+        }
     }
 }

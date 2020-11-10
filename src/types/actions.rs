@@ -50,6 +50,13 @@ impl SpecificAction {
         }
     }
 
+    pub fn arbitrage(&self) -> Option<&Arbitrage> {
+        match self {
+            SpecificAction::Arbitrage(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
     pub fn liquidation(&self) -> Option<&Liquidation> {
         match self {
             SpecificAction::Liquidation(inner) => Some(inner),

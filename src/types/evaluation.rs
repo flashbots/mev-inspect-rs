@@ -57,6 +57,8 @@ impl Evaluation {
 
         // TODO: Figure out how to sum up liquidations & arbs while pruning
         // aggressively
+        // TODO: If an Inspection is CHECKED and contains >1 trading protocol,
+        // then probably this is an Arbitrage?
         let mut actions = Vec::new();
         let mut profit = U256::zero();
         for action in &inspection.actions {

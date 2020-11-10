@@ -82,9 +82,7 @@ pub mod tests {
             let mut inspection =
                 get_trace("0xd9306dc8c1230cc0faef22a8442d0994b8fc9a8f4c9faeab94a9a7eac8e59710");
             let uni = Uniswap::new();
-            dbg!(&inspection);
             uni.inspect(&mut inspection);
-            dbg!(&inspection);
 
             assert_eq!(inspection.known().len(), 1);
             let arb = to_arb(&inspection.actions[2]);
@@ -138,7 +136,7 @@ pub mod tests {
 
     #[test]
     // https://etherscan.io/tx/0x123d03cef9ccd4230d111d01cf1785aed4242eb2e1e542bd792d025eb7e3cc84/advanced#internal
-    fn parse_failing() {
+    fn router_insufficient_amount() {
         let mut inspection =
             get_trace("123d03cef9ccd4230d111d01cf1785aed4242eb2e1e542bd792d025eb7e3cc84");
         let uni = Uniswap::new();
@@ -150,5 +148,57 @@ pub mod tests {
                 .unwrap(),
             "ETH"
         );
+    }
+
+    #[test]
+    // Traces which either reverted or returned early on purpose, after checking
+    // for an arb opportunity and seeing that it won't work.
+    fn checked() {
+        let both = &[Protocol::Uniswap, Protocol::Sushiswap][..];
+        let uni = &[Protocol::Uniswap][..];
+        for (trace, protocols) in &[
+            (
+                "0x2f85ce5bb5f7833e052897fa4a070615a4e21a247e1ccc2347a3882f0e73943d",
+                both,
+            ),
+            (
+                "0xd9df5ae2e9e18099913559f71473866758df3fd25919be605c71c300e64165fd",
+                uni,
+            ),
+            (
+                "0xfd24e512dc90bd1ca8a4f7987be6122c1fa3221b261e8728212f2f4d980ee4cd",
+                both,
+            ),
+            (
+                "0xf5f0b7e1c1761eff33956965f90b6d291fa2ff3c9907b450d483a58932c54598",
+                both,
+            ),
+            (
+                "0x4cf1a912197c2542208f7c1b5624fa5ea75508fa45f41c28f7e6aaa443d14db2",
+                both,
+            ),
+            (
+                "0x9b08b7c8efe5cfd40c012b956a6031f60c076bc07d5946888a0d55e5ed78b38a",
+                uni,
+            ),
+            (
+                "0xe43734199366c665e341675e0f6ea280745d7d801924815b2c642dc83c8756d6",
+                both,
+            ),
+            (
+                "0x243b4b5bf96d345f690f6b17e75031dc634d0e97c47d73cbecf2327250077591",
+                both,
+            ),
+            (
+                "0x52311e6ec870f530e84f79bbb08dce05c95d80af5a3cb29ab85d128a15dbea8d",
+                uni,
+            ),
+        ] {
+            let mut inspection = get_trace(trace);
+            let uni = Uniswap::new();
+            uni.inspect(&mut inspection);
+            assert_eq!(inspection.status, Status::Checked);
+            assert_eq!(inspection.protocols, *protocols,);
+        }
     }
 }

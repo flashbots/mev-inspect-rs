@@ -6,7 +6,7 @@ use crate::{
 
 use ethers::{
     contract::decode_fn as abi_decode,
-    types::{Address, Bytes, Call as TraceCall, U256},
+    types::{Address, Bytes, Call as TraceCall, CallType, U256},
 };
 
 // Type aliases for Uniswap's `swap` return types
@@ -25,13 +25,20 @@ impl Uniswap {
                 if let Some(transfer) = self.erc20.parse(call) {
                     *action = Classification::new(transfer, calltrace.trace_address.clone());
                 } else {
-                    // If we could not parse the call as an ERC20 but
-                    // it is targeting a Uni address, we can prune
-                    // that trace
-                    let protocol = self.is_uni_call(&call);
-                    if protocol.is_some() {
+                    // StaticCalls are checked to look for "getReserves"-like calls
+                    // to the pairs
+                    if call.call_type == CallType::StaticCall {
+                        res = UNISWAP.get(&call.to).map(|x| *x);
                         *action = Classification::Prune;
-                        res = protocol;
+                    } else {
+                        // If we could not parse the call as an ERC20 but
+                        // it is targeting a Uni address, we can prune
+                        // that trace
+                        let protocol = self.is_uni_call(&call);
+                        if protocol.is_some() {
+                            *action = Classification::Prune;
+                            res = protocol;
+                        }
                     }
                 }
             }
@@ -45,21 +52,25 @@ impl Uniswap {
 
     // There MUST be 1 `swap` call in the traces either to the Pair directly
     // or to the router
-    #[allow(unused, clippy::collapsible_if)]
+    #[allow(clippy::collapsible_if)]
     fn is_uni_call(&self, call: &TraceCall) -> Option<Protocol> {
         let mut res = None;
         // Check the call is a `swap`
         let uniswappy = UNISWAP.get(&call.to);
 
-        if let Ok((amount0, amount1, to, data)) =
-            self.pair.decode::<PairSwap, _>("swap", &call.input)
-        {
+        if let Ok((_, _, _, data)) = self.pair.decode::<PairSwap, _>("swap", &call.input) {
             // if the data field is not empty, then there is a flashloan
             if data.as_ref().len() > 0 {
                 res = Some(Protocol::Flashloan);
             } else {
                 res = Some(*uniswappy.unwrap_or(&Protocol::Uniswap));
             }
+        } else if call
+            .input
+            .as_ref()
+            .starts_with(&ethers::utils::id("getReserves()"))
+        {
+            res = Some(*uniswappy.unwrap_or(&Protocol::Uniswap));
         } else {
             // if there's no swap, maybe there are `swap*` calls to the router
             if let Some(&uniswappy) = uniswappy {
@@ -83,7 +94,7 @@ impl Uniswap {
 }
 
 #[cfg(test)]
-mod simple_trades {
+mod tests {
     use super::*;
     use crate::{addresses::ADDRESSBOOK, test_helpers::*, types::Status, Inspector};
 

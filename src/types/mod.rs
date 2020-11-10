@@ -12,8 +12,11 @@ pub use inspection::Inspection;
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Status {
-    // Reverted(String),
+    /// When a transaction reverts without touching any DeFi protocol
     Reverted,
+    /// When a transaction reverts early but it had touched a DeFi protocol
+    Checked,
+    /// When a transaction suceeds
     Success,
 }
 

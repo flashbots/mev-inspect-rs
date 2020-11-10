@@ -136,12 +136,6 @@ impl<T: IntoIterator<Item = Trace>> From<T> for Inspection {
                             block_number = Some(trace.block_number);
                         }
 
-                        if call.call_type == CallType::StaticCall
-                        // || call.call_type == CallType::DelegateCall
-                        {
-                            return None;
-                        }
-
                         Some(
                             CallTrace {
                                 call,

@@ -28,6 +28,7 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     let map = insert_many(
         map,
         &[
+            "0x2b095969ae40BcE8BaAF515B16614A636C22a6Db",
             "0x2fdbadf3c4d5a8666bc06645b8358ab803996e28",
             "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
         ],
