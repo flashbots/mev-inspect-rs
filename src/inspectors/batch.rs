@@ -1,16 +1,20 @@
-use crate::{types::Inspection, Inspector};
+use crate::{types::Inspection, Inspector, Reducer};
 use ethers::types::Trace;
 use itertools::Itertools;
 
 /// Classifies traces according to the provided inspectors
 pub struct BatchInspector {
     inspectors: Vec<Box<dyn Inspector>>,
+    reducers: Vec<Box<dyn Reducer>>,
 }
 
 impl BatchInspector {
     /// Constructor
-    pub fn new(inspectors: Vec<Box<dyn Inspector>>) -> Self {
-        Self { inspectors }
+    pub fn new(inspectors: Vec<Box<dyn Inspector>>, reducers: Vec<Box<dyn Reducer>>) -> Self {
+        Self {
+            inspectors,
+            reducers,
+        }
     }
 
     /// Given a trace iterator, it groups all traces for the same tx hash
@@ -19,6 +23,7 @@ impl BatchInspector {
         // group traces in a block by tx hash
         let traces = traces.into_iter().group_by(|t| t.transaction_hash);
 
+        // inspects everything
         let inspections = traces
             .into_iter()
             // Convert the traces to inspections
@@ -27,18 +32,24 @@ impl BatchInspector {
             // Make an unclassified inspection per tx_hash containing a tree of traces
             .map(|mut i| {
                 self.inspect(&mut i);
+                self.reduce(&mut i);
                 i
             })
-            .collect();
+            .collect::<Vec<_>>();
+
         inspections
     }
-
-    // pub fn reduce(&self, inspection: Inspection) {}
 
     /// Decodes the inspection's actions
     pub fn inspect(&self, inspection: &mut Inspection) {
         for inspector in self.inspectors.iter() {
             inspector.inspect(inspection);
+        }
+    }
+
+    pub fn reduce(&self, inspection: &mut Inspection) {
+        for reducer in self.reducers.iter() {
+            reducer.reduce(inspection);
         }
     }
 }
@@ -49,6 +60,7 @@ mod tests {
     use crate::{
         addresses::ADDRESSBOOK,
         inspectors::{Aave, Uniswap},
+        reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
         test_helpers::*,
     };
     use ethers::types::U256;
@@ -64,8 +76,18 @@ mod tests {
         let mut inspection =
             get_trace("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
 
-        let inspector = BatchInspector::new(vec![Box::new(Uniswap::new()), Box::new(Aave::new())]);
+        let inspector = BatchInspector::new(
+            vec![Box::new(Uniswap::new()), Box::new(Aave::new())],
+            vec![
+                // Classify liquidations first
+                Box::new(LiquidationReducer::new()),
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
         inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
 
         let known = inspection.known();
 
@@ -73,7 +95,6 @@ mod tests {
             .iter()
             .find_map(|action| action.as_ref().profitable_liquidation())
             .unwrap();
-        dbg!(&liquidation);
         assert_eq!(
             liquidation.profit,
             U256::from_dec_str("11050220339336343871").unwrap()
@@ -93,6 +114,5 @@ mod tests {
             get_trace("0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627");
         let uni = Uniswap::new();
         uni.inspect(&mut inspection);
-        dbg!(&inspection);
     }
 }

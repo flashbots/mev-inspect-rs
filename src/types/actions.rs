@@ -64,6 +64,14 @@ impl SpecificAction {
         }
     }
 
+    // TODO: Can we convert these to AsRef / AsMut Options somehow?
+    pub fn liquidation_mut(&mut self) -> Option<&mut Liquidation> {
+        match self {
+            SpecificAction::Liquidation(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
     pub fn profitable_liquidation(&self) -> Option<&ProfitableLiquidation> {
         match self {
             SpecificAction::ProfitableLiquidation(inner) => Some(inner),

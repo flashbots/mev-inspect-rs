@@ -1,118 +1,79 @@
 use crate::{
-    inspectors::Uniswap,
-    types::{
-        actions::{SpecificAction, Trade},
-        Classification,
-    },
+    inspectors::find_matching_transfer_after,
+    types::{actions::Trade, Classification, Inspection},
+    Reducer,
 };
-use itertools::{EitherOrBoth::*, Itertools};
 
-impl Uniswap {
-    pub fn combine_transfers(&self, classifications: &mut [Classification]) {
-        use Classification::Known;
-        let actions = classifications.to_vec();
-        let mut prune = 0;
-        classifications
+pub struct TradeReducer;
+
+impl TradeReducer {
+    /// Instantiates the reducer
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Reducer for TradeReducer {
+    fn reduce(&self, inspection: &mut Inspection) {
+        let actions = inspection.actions.to_vec();
+        let mut prune = Vec::new();
+        inspection
+            .actions
             .iter_mut()
             .enumerate()
-            .zip_longest(actions.iter().skip(1))
-            .for_each(|mut pair| match pair {
-                Both((i, ref mut a1), ref mut a2) => {
-                    // prune elements which have been reduced already
-                    // TODO: Figure out how to do this properly.
-                    if i > 0 && i == prune {
-                        **a1 = Classification::Prune;
+            .for_each(|(i, action)| {
+                // check if we got a transfer
+                let transfer =
+                    if let Some(transfer) = action.to_action().map(|x| x.transfer()).flatten() {
+                        transfer
+                    } else {
                         return;
-                    }
-
-                    match (&a1, &a2) {
-                        (Known(ref b1), Known(ref b2)) => match (&b1.as_ref(), &b2.as_ref()) {
-                            (SpecificAction::Transfer(t1), SpecificAction::Transfer(t2)) => {
-                                // Hack to filter out weird dups
-                                if t1.token == t2.token {
-                                    **a1 = Classification::Prune;
-                                    return;
-                                }
-
-                                if t1.to == t2.from {
-                                    let action = Trade {
-                                        t1: t1.clone(),
-                                        t2: t2.clone(),
-                                    };
-
-                                    // TODO: Figure out what the trace should be here
-                                    **a1 = Classification::new(action, Vec::new());
-
-                                    // Since we paired with the next element,
-                                    // we should prune it, if the element after the
-                                    // next does not also execute a matching trade
-                                    if let Some(actions) = actions.get(i + 2) {
-                                        match &actions {
-                                            Known(ref inner) => match &inner.as_ref() {
-                                                SpecificAction::Transfer(t3) => {
-                                                    if t2.to == t3.from {
-                                                        prune = 0;
-                                                        return;
-                                                    }
-                                                }
-                                                _ => (),
-                                            },
-                                            _ => (),
-                                        };
-                                    }
-
-                                    prune = i + 1;
-                                }
-                            }
-                            // TODO: Is there a way to avoid doing these _ => () branches?
-                            _ => (),
-                        },
-                        _ => (),
                     };
-                }
-                Left((i, ref mut a1)) => {
-                    if i > 0 && i == prune {
-                        **a1 = Classification::Prune;
+
+                // find the first transfer after it
+                if let Some((j, transfer2)) =
+                    find_matching_transfer_after(&actions, i, |t| t.from == transfer.to)
+                {
+                    // Hack to filter out weird dups
+                    if transfer.token == transfer2.token {
+                        *action = Classification::Prune;
                         return;
                     }
+
+                    *action = Classification::new(
+                        Trade {
+                            t1: transfer.clone(),
+                            t2: transfer2.clone(),
+                        },
+                        Vec::new(),
+                    );
+
+                    // If there is no follow-up transfer that uses `transfer2`, prune it:
+                    if find_matching_transfer_after(&actions, j, |t| t.from == transfer2.to)
+                        .is_none()
+                    {
+                        prune.push(j);
+                    }
                 }
-                Right(_) => (),
             });
+
+        prune
+            .iter()
+            .for_each(|p| inspection.actions[*p] = Classification::Prune);
     }
 }
 
 #[cfg(test)]
-mod reducer {
+mod tests {
     use super::*;
-    use crate::types::{actions::Transfer, Inspection, Status};
-    use ethers::types::{Address, TxHash};
+    use crate::test_helpers::*;
+    use crate::types::actions::Transfer;
 
-    fn mk_inspection(actions: Vec<Classification>) -> Inspection {
-        Inspection {
-            status: Status::Success,
-            actions,
-            protocols: vec![],
-            from: Address::zero(),
-            contract: Address::zero(),
-            proxy_impl: None,
-            hash: TxHash::zero(),
-            block_number: 0,
-        }
-    }
-
-    fn test_combine(input: Vec<Classification>, expected: Vec<Classification>) {
-        let uniswap = Uniswap::new();
+    fn test_transfer_to_trade(input: Vec<Classification>, expected: Vec<Classification>) {
+        let uniswap = TradeReducer::new();
         let mut inspection = mk_inspection(input);
-        uniswap.combine_transfers(&mut inspection.actions);
+        uniswap.reduce(&mut inspection);
         assert_eq!(inspection.actions, expected);
-    }
-
-    fn addrs() -> Vec<Address> {
-        use ethers::core::rand::thread_rng;
-        (0..10)
-            .into_iter()
-            .map(|_| ethers::signers::LocalWallet::new(&mut thread_rng()).address())
-            .collect()
     }
 
     #[test]
@@ -199,7 +160,7 @@ mod reducer {
             Classification::Prune,
         ];
 
-        test_combine(input, expected);
+        test_transfer_to_trade(input, expected);
     }
 
     #[test]
@@ -233,10 +194,10 @@ mod reducer {
             Classification::Prune,
         ];
 
-        test_combine(input, expected);
+        test_transfer_to_trade(input, expected);
     }
 
-    // #[test]
+    #[test]
     fn non_continuous_transfers_ok() {
         let addrs = addrs();
         let token1 = addrs[0];
@@ -271,6 +232,6 @@ mod reducer {
             Classification::Prune,
         ];
 
-        test_combine(input, expected);
+        test_transfer_to_trade(input, expected);
     }
 }

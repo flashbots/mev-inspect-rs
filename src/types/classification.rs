@@ -98,6 +98,13 @@ impl Classification {
             _ => None,
         }
     }
+
+    pub fn to_action_mut(&mut self) -> Option<&mut SpecificAction> {
+        match self {
+            Classification::Known(ref mut inner) => Some(&mut inner.action),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Debug for Classification {

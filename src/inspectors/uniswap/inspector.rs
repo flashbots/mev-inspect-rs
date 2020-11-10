@@ -96,15 +96,44 @@ impl Uniswap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{addresses::ADDRESSBOOK, test_helpers::*, types::Status, Inspector};
+    use crate::{
+        addresses::ADDRESSBOOK,
+        reducers::TradeReducer,
+        test_helpers::*,
+        types::{Inspection, Status},
+        Inspector, Reducer,
+    };
+
+    // inspector that does all
+    struct MyInspector {
+        uni: Uniswap,
+        trade: TradeReducer,
+    }
+
+    impl MyInspector {
+        fn inspect(&self, inspection: &mut Inspection) {
+            self.uni.inspect(inspection);
+            self.trade.reduce(inspection);
+            inspection.prune();
+        }
+
+        fn new() -> Self {
+            Self {
+                uni: Uniswap::new(),
+                trade: TradeReducer::new(),
+            }
+        }
+    }
 
     #[test]
     // https://etherscan.io/tx/0x46909832db6ca33317c43436c76eef4b654d7f9cbc5e64cf47079aa7ea8be845/advanced#internal
     fn parse_eth_for_exact_tokens() {
         let mut inspection =
             get_trace("46909832db6ca33317c43436c76eef4b654d7f9cbc5e64cf47079aa7ea8be845");
-        let uni = Uniswap::new();
+        let uni = MyInspector::new();
         uni.inspect(&mut inspection);
+
+        dbg!(&inspection);
 
         let actions = &inspection.actions;
         assert_eq!(
@@ -139,7 +168,7 @@ mod tests {
     // https://etherscan.io/tx/0xeef0edcc4ce9aa85db5bc6a788b5a770dcc0d13eb7df4e7c008c1ac6666cd989
     fn parse_exact_tokens_for_eth() {
         let mut inspection = read_trace("exact_tokens_for_eth.json");
-        let uni = Uniswap::new();
+        let uni = MyInspector::new();
         uni.inspect(&mut inspection);
 
         let actions = &inspection.actions;
@@ -168,7 +197,7 @@ mod tests {
     fn parse_exact_tokens_for_tokens() {
         let mut inspection =
             get_trace("622519e27d56ea892c6e5e479b68e1eb6278e222ed34d0dc4f8f0fd254723def");
-        let uni = Uniswap::new();
+        let uni = MyInspector::new();
         uni.inspect(&mut inspection);
         assert_eq!(inspection.status, Status::Success);
 
@@ -186,7 +215,7 @@ mod tests {
     fn parse_exact_eth_for_tokens() {
         let mut inspection =
             get_trace("72493a035de37b73d3fcda2aa20852f4196165f3ce593244e51fa8e7c80bc13f");
-        let uni = Uniswap::new();
+        let uni = MyInspector::new();
         uni.inspect(&mut inspection);
         assert_eq!(inspection.status, Status::Success);
 

@@ -11,6 +11,9 @@
 /// MEV Inspectors
 pub mod inspectors;
 
+/// Reducers
+pub mod reducers;
+
 /// Batch Inspector which tries to decode traces using
 /// multiple inspectors
 pub use inspectors::BatchInspector;

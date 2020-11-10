@@ -1,12 +1,33 @@
 use crate::types::{
     actions::{Arbitrage, SpecificAction, Trade, Transfer},
-    Classification, Inspection,
+    Classification, Inspection, Status,
 };
-use ethers::types::{Trace, TxHash};
+use ethers::types::{Address, Trace, TxHash};
 use once_cell::sync::Lazy;
 
 pub const TRACE: &str = include_str!("../../res/11017338.trace.json");
 pub static TRACES: Lazy<Vec<Trace>> = Lazy::new(|| serde_json::from_str(TRACE).unwrap());
+
+pub fn addrs() -> Vec<Address> {
+    use ethers::core::rand::thread_rng;
+    (0..10)
+        .into_iter()
+        .map(|_| ethers::signers::LocalWallet::new(&mut thread_rng()).address())
+        .collect()
+}
+
+pub fn mk_inspection(actions: Vec<Classification>) -> Inspection {
+    Inspection {
+        status: Status::Success,
+        actions,
+        protocols: vec![],
+        from: Address::zero(),
+        contract: Address::zero(),
+        proxy_impl: None,
+        hash: TxHash::zero(),
+        block_number: 0,
+    }
+}
 
 pub fn read_trace(path: &str) -> Inspection {
     let input = std::fs::read_to_string(format!("res/{}", path)).unwrap();

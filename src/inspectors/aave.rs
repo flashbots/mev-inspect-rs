@@ -1,11 +1,7 @@
 use crate::{
-    addresses::{AAVE_LENDING_POOL, ETH},
-    is_subtrace,
-    types::{
-        actions::{Liquidation, ProfitableLiquidation, SpecificAction, Transfer},
-        Classification, Inspection, Protocol,
-    },
-    Inspector, Reducer,
+    addresses::AAVE_LENDING_POOL,
+    types::{actions::Liquidation, Classification, Inspection, Protocol},
+    Inspector,
 };
 use ethers::{
     abi::Abi,
@@ -17,8 +13,6 @@ type LiquidationCall = (Address, Address, Address, U256, bool);
 
 pub struct Aave {
     pub pool: BaseContract,
-    // TODO: Unused?
-    pub core: BaseContract,
 }
 
 impl Aave {
@@ -28,101 +22,6 @@ impl Aave {
                 serde_json::from_str::<Abi>(include_str!("../../abi/aavepool.json"))
                     .expect("could not parse aave abi")
             }),
-            core: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/aavecore.json"))
-                    .expect("could not parse aave core abi")
-            }),
-        }
-    }
-}
-
-impl Reducer for Aave {
-    fn reduce(&self, inspection: &mut Inspection) {
-        let actions = inspection.actions.clone();
-        let mut prune = Vec::new();
-
-        let mut found = None;
-        inspection
-            .actions
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, action)| {
-                let t1 = action.clone().trace_address();
-                match action {
-                    Classification::Known(action_trace) => match &mut action_trace.action {
-                        SpecificAction::Liquidation(liquidation) => {
-                            for (j, c) in actions.iter().enumerate() {
-                                let t2 = c.trace_address();
-                                if t2 == t1 {
-                                    continue;
-                                }
-
-                                if is_subtrace(&t1, &t2) {
-                                    match c {
-                                        Classification::Known(action_trace2) => match action_trace2
-                                            .as_ref()
-                                        {
-                                            SpecificAction::Transfer(transfer) => {
-                                                if transfer.to == liquidation.from
-                                                    && (transfer.token
-                                                        == liquidation.received_token
-                                                        || transfer.token == *ETH)
-                                                {
-                                                    liquidation.received_amount = transfer.amount;
-                                                    if found.is_none() {
-                                                        found = Some((i, liquidation.clone()));
-                                                    }
-                                                }
-                                            }
-                                            _ => (),
-                                        },
-                                        Classification::Unknown(_) => {}
-                                        Classification::Prune => (),
-                                    };
-                                    prune.push(j);
-                                }
-                            }
-                        }
-                        _ => (),
-                    },
-                    _ => (),
-                }
-            });
-
-        // Remove the traces which were subtraces of liquidation txs. Assuming
-        // the Uniswap inspector has been executed first, there will be a transfer
-        // which will populate the liquidation's received amount
-        prune
-            .iter()
-            .for_each(|p| inspection.actions[*p] = Classification::Prune);
-
-        // Find the first trade which has the same token as the liquidation token
-        // to calculate the profit
-        // TODO: Is this the correct heuristic? Maybe it should be "find the last
-        // transfer which happens before"
-        if let Some((i, liquidation)) = found {
-            let found: Option<&Transfer> = actions.iter().find_map(|classification| {
-                let transfer = classification.to_action().map(|x| x.transfer()).flatten();
-                if let Some(inner) = transfer {
-                    if inner.token == liquidation.received_token {
-                        return transfer;
-                    }
-                }
-                None
-            });
-
-            if let Some(transfer) = found {
-                if liquidation.received_amount > transfer.amount {
-                    inspection.actions[i] = Classification::new(
-                        ProfitableLiquidation {
-                            liquidation: liquidation.clone(),
-                            token: liquidation.received_token,
-                            profit: liquidation.received_amount - transfer.amount,
-                        },
-                        Vec::new(),
-                    ); // TODO: Figure out what the trace here should be
-                }
-            }
         }
     }
 }
