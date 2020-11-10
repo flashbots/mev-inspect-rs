@@ -158,11 +158,11 @@ impl<T: IntoIterator<Item = Trace>> From<T> for Inspection {
             protocols: Vec::new(),
 
             // set the data from the first call
-            from: from.expect("msg.sender should be set"),
-            contract: contract.expect("first receiver should be the bot contract"),
+            from: from.unwrap_or_default(),
+            contract: contract.unwrap_or_default(),
             proxy_impl,
-            hash: hash.expect("tx hash should be set"),
-            block_number: block_number.expect("block number should be set"),
+            hash: hash.unwrap_or_default(),
+            block_number: block_number.unwrap_or_default(),
         }
     }
 }

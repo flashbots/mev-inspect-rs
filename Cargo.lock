@@ -877,10 +877,12 @@ name = "mev-inspect"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "ethers",
  "itertools",
  "once_cell",
  "rustc-hex",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",

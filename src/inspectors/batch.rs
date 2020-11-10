@@ -23,15 +23,13 @@ impl BatchInspector {
             .into_iter()
             // Convert the traces to inspections
             .map(|(_, traces)| Inspection::from(traces))
+            .filter(|i| !i.actions.is_empty())
             // Make an unclassified inspection per tx_hash containing a tree of traces
             .map(|mut i| {
                 self.inspect(&mut i);
                 i
             })
             .collect();
-
-        // TODO: Convert these inspections to known/unknown Evaluations
-        // containing profit-related data.
         inspections
     }
 
@@ -56,7 +54,6 @@ mod tests {
     use ethers::types::U256;
 
     #[test]
-    #[ignore]
     // call that starts from a bot but has a uniswap sub-trace
     // https://etherscan.io/tx/0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f
     // 99k USDC -> 281 ETH -> 5.7 YFI trade

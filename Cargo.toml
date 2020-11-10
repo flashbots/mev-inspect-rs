@@ -14,6 +14,8 @@ tokio = { version = "0.2", features = ["macros"] }
 anyhow = "1.0.34"
 rustc-hex = "2.1.0"
 thiserror = "1.0.22"
+async-trait = "0.1.41"
+serde = "1.0.117"
 
 [dev-dependencies]
 rustc-hex = "2.1.0"

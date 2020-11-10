@@ -21,6 +21,9 @@ pub mod types;
 /// Various addresses which are found among protocols
 pub mod addresses;
 
+mod cached_provider;
+pub use cached_provider::CachedProvider;
+
 #[cfg(test)]
 mod test_helpers;
 
