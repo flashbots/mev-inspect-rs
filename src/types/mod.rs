@@ -4,7 +4,7 @@ pub mod actions;
 mod evaluation;
 pub use evaluation::Evaluation;
 
-mod classification;
+pub(crate) mod classification;
 pub use classification::Classification;
 
 mod inspection;

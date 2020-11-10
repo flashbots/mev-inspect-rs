@@ -48,13 +48,20 @@ impl Inspector for Uniswap {
 impl Reducer for Uniswap {
     /// Combines consecutive `Transfer`s into `Trade`s
     fn reduce(&self, inspection: &mut Inspection) {
-        use Classification::Known;
-        // TODO: Can we filter the zip without cloning?
-        let actions = inspection.actions.clone();
+        // Transfers to trades
+        self.combine_transfers(&mut inspection.actions);
+        // Once trades have been combined, we can go ahead and collapse the ones
+        // which are arbitrages
+        self.arb.reduce(inspection);
+    }
+}
 
+impl Uniswap {
+    pub fn combine_transfers(&self, classifications: &mut [Classification]) {
+        use Classification::Known;
+        let actions = classifications.to_vec();
         let mut prune = 0;
-        inspection
-            .actions
+        classifications
             .iter_mut()
             .enumerate()
             .zip_longest(actions.iter().skip(1))
@@ -120,14 +127,8 @@ impl Reducer for Uniswap {
                 }
                 Right(_) => (),
             });
-
-        // Once trades have been combined, we can go ahead and collapse the ones
-        // which are arbitrages
-        self.arb.reduce(inspection);
     }
-}
 
-impl Uniswap {
     /// Constructor
     pub fn new() -> Self {
         Self {
@@ -232,6 +233,77 @@ pub mod tests {
                 .unwrap(),
             "ETH"
         );
+    }
+
+    mod reducer {
+        use super::*;
+        use crate::types::{actions::Transfer, classification::ActionTrace, Inspection, Status};
+        use ethers::types::TxHash;
+
+        fn mk_inspection(actions: Vec<SpecificAction>) -> Inspection {
+            Inspection {
+                status: Status::Success,
+                actions: actions
+                    .into_iter()
+                    .map(|x| {
+                        ActionTrace {
+                            action: x,
+                            trace_address: vec![],
+                        }
+                        .into()
+                    })
+                    .collect(),
+                protocols: vec![],
+                from: Address::zero(),
+                contract: Address::zero(),
+                proxy_impl: None,
+                hash: TxHash::zero(),
+                block_number: 0,
+            }
+        }
+
+        fn to_action<T: Into<SpecificAction>>(actions: Vec<T>) -> Vec<SpecificAction> {
+            actions.into_iter().map(Into::into).collect()
+        }
+
+        // Collapse transfers to trades
+        #[test]
+        fn continuous_transfers_ok() {
+            let token1: Address = "1111111111111111111111111111111111111111".parse().unwrap();
+            let token2: Address = "2222222222222222222222222222222222222222".parse().unwrap();
+            let addr1: Address = "3333333333333333333333333333333333333333".parse().unwrap();
+            let addr2: Address = "4444444444444444444444444444444444444444".parse().unwrap();
+
+            let t1 = Transfer {
+                from: addr1,
+                to: addr2,
+                amount: 1.into(),
+                token: token1,
+            };
+
+            let t2 = Transfer {
+                from: addr2,
+                to: addr1,
+                amount: 5.into(),
+                token: token2,
+            };
+
+            let uniswap = Uniswap::new();
+            let expected = Trade {
+                t1: t1.clone(),
+                t2: t2.clone(),
+            };
+            let mut inspection = mk_inspection(to_action(vec![t1, t2]));
+            uniswap.combine_transfers(&mut inspection.actions);
+
+            assert_eq!(
+                inspection.actions,
+                vec![
+                    Classification::new(expected, Vec::new()),
+                    Classification::Prune,
+                ]
+            );
+        }
     }
 
     mod arbitrages {
