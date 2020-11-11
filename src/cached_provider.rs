@@ -6,7 +6,7 @@ use ethers::{
 use serde::{de::DeserializeOwned, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CachedProvider<M> {
     inner: M,
     cache: PathBuf,

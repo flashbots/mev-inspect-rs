@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 # ethers = { git = "https://github.com/gakonst/ethers-rs", branch = "fix/generic-decode" }
-ethers = { path = "/Users/Georgios/paradigm/ethers-rs/ethers" }
+ethers = { path = "/Users/Georgios/paradigm/ethers-rs/ethers", features = ["abigen"] }
 serde_json = "1.0.59"
 once_cell = "1.4.1"
 itertools = "0.9.0"

@@ -1,6 +1,10 @@
-use crate::types::{actions::SpecificAction, Classification, Inspection};
+use crate::{
+    types::{actions::SpecificAction, Classification, Inspection},
+    HistoricalPrice,
+};
 
 use ethers::{
+    contract::ContractError,
     providers::Middleware,
     types::{TxHash, U256},
 };
@@ -39,6 +43,7 @@ impl Evaluation {
     pub async fn new<T: Middleware>(
         inspection: Inspection,
         provider: &T,
+        prices: &HistoricalPrice<T>,
     ) -> Result<Self, EvalError<T>>
     where
         T: 'static,
@@ -66,12 +71,18 @@ impl Evaluation {
                 Classification::Known(action) => match action.as_ref() {
                     SpecificAction::Arbitrage(arb) => {
                         actions.push(ActionType::Arbitrage);
-                        profit += arb.profit;
+                        profit += prices
+                            .quote(arb.token, arb.profit, inspection.block_number)
+                            .await
+                            .map_err(EvalError::Contract)?;
                     }
                     SpecificAction::Liquidation(_) => actions.push(ActionType::Liquidation),
                     SpecificAction::ProfitableLiquidation(liq) => {
                         actions.push(ActionType::Liquidation);
-                        profit += liq.profit;
+                        profit += prices
+                            .quote(liq.token, liq.profit, inspection.block_number)
+                            .await
+                            .map_err(EvalError::Contract)?;
                     }
                     _ => (),
                 },
@@ -93,10 +104,12 @@ impl Evaluation {
 #[derive(Debug, Error)]
 pub enum EvalError<M: Middleware>
 where
-    M::Error: 'static,
+    M: 'static,
 {
     #[error(transparent)]
     Provider(M::Error),
     #[error("Transaction was not found {0}")]
     TxNotFound(TxHash),
+    #[error(transparent)]
+    Contract(ContractError<M>),
 }

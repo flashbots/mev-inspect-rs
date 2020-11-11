@@ -37,6 +37,9 @@ pub use traits::*;
 mod mevdb;
 pub use mevdb::MevDB;
 
+mod prices;
+pub use prices::HistoricalPrice;
+
 /// Checks if `a2` is a subtrace of `a1`
 pub fn is_subtrace(a1: &[usize], a2: &[usize]) -> bool {
     if a1.is_empty() {
