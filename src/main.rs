@@ -17,6 +17,9 @@ use std::{convert::TryFrom, path::PathBuf};
 struct Opts {
     help: bool,
 
+    #[options(help = "clear and re-build the database")]
+    reset: bool,
+
     #[options(
         default = "http://localhost:8545",
         help = "The tracing / archival node's URL"
@@ -88,9 +91,10 @@ async fn main() -> anyhow::Result<()> {
     let processor = BatchInspector::new(inspectors, reducers);
 
     let mut db = MevDB::connect("127.0.0.1", "postgres", "mev_inspections").await?;
-    // TODO: Remove these so that the db isn't reset every time
-    db.clear().await?;
-    db.create().await?;
+    if opts.reset {
+        db.clear().await?;
+        db.create().await?;
+    }
 
     match cmd {
         Command::Tx(opts) => {
@@ -101,7 +105,12 @@ async fn main() -> anyhow::Result<()> {
                 println!("Revenue: {:?}", evaluation.profit);
                 println!("Cost: {:?}", evaluation.gas_used * evaluation.gas_price);
                 println!("Actions: {:?}", evaluation.actions);
-                db.insert(&evaluation).await?;
+
+                if !db.exists(opts.tx).await? {
+                    db.insert(&evaluation).await?;
+                } else {
+                    eprintln!("Tx already in the database, skipping insertion.");
+                }
             } else {
                 eprintln!("No actions found for tx {:?}", opts.tx);
             }

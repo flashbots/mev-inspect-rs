@@ -1,5 +1,5 @@
 use crate::types::Evaluation;
-use ethers::types::U256;
+use ethers::types::{TxHash, U256};
 use rust_decimal::prelude::*;
 use thiserror::Error;
 use tokio_postgres::{Client, NoTls};
@@ -27,6 +27,32 @@ impl<'a> MevDB<'a> {
         });
 
         Ok(Self { client, table_name })
+    }
+
+    /// Creates a new table for the MEV data
+    pub async fn create(&mut self) -> Result<(), DbError> {
+        self.client
+            .batch_execute(&format!(
+                "CREATE TABLE IF NOT EXISTS {} (
+                    hash text PRIMARY KEY,
+                    status text,
+
+                    block_number NUMERIC,
+                    gas_price NUMERIC,
+                    gas_used NUMERIC,
+                    profit NUMERIC,
+
+                    protocols text[],
+                    actions text[],
+
+                    eoa text,
+                    contract text,
+                    proxy_impl text
+                )",
+                self.table_name
+            ))
+            .await?;
+        Ok(())
     }
 
     /// Inserts data from this evaluation to PostGres
@@ -74,34 +100,26 @@ impl<'a> MevDB<'a> {
         Ok(())
     }
 
+    /// Checks if the transaction hash is already inspected
+    pub async fn exists(&mut self, hash: TxHash) -> Result<bool, DbError> {
+        let rows = self
+            .client
+            .query(
+                format!("SELECT hash FROM {} WHERE hash = $1", self.table_name).as_str(),
+                &[&format!("{:?}", hash)],
+            )
+            .await?;
+        if let Some(row) = rows.get(0) {
+            let got: String = row.get(0);
+            Ok(format!("{:?}", hash) == got)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub async fn clear(&mut self) -> Result<(), DbError> {
         self.client
             .batch_execute(&format!("DROP TABLE {}", self.table_name))
-            .await?;
-        Ok(())
-    }
-
-    pub async fn create(&mut self) -> Result<(), DbError> {
-        self.client
-            .batch_execute(&format!(
-                "CREATE TABLE IF NOT EXISTS {} (
-                    hash text PRIMARY KEY,
-                    status text,
-
-                    block_number NUMERIC,
-                    gas_price NUMERIC,
-                    gas_used NUMERIC,
-                    profit NUMERIC,
-
-                    protocols text[],
-                    actions text[],
-
-                    eoa text,
-                    contract text,
-                    proxy_impl text
-                )",
-                self.table_name
-            ))
             .await?;
         Ok(())
     }
@@ -161,5 +179,7 @@ mod tests {
         };
 
         client.insert(&evaluation).await.unwrap();
+
+        assert!(client.exists(evaluation.as_ref().hash).await.unwrap());
     }
 }
