@@ -27,17 +27,24 @@ impl BatchInspector {
         let inspections = traces
             .into_iter()
             // Convert the traces to inspections
-            .map(|(_, traces)| Inspection::from(traces))
-            .filter(|i| !i.actions.is_empty())
-            // Make an unclassified inspection per tx_hash containing a tree of traces
-            .map(|mut i| {
-                self.inspect(&mut i);
-                self.reduce(&mut i);
-                i
-            })
+            .filter_map(|(_, traces)| self.inspect_one(traces))
             .collect::<Vec<_>>();
 
         inspections
+    }
+
+    pub fn inspect_one<'a>(
+        &'a self,
+        traces: impl IntoIterator<Item = Trace>,
+    ) -> Option<Inspection> {
+        let mut i = Inspection::from(traces);
+        if !i.actions.is_empty() {
+            self.inspect(&mut i);
+            self.reduce(&mut i);
+            Some(i)
+        } else {
+            None
+        }
     }
 
     /// Decodes the inspection's actions
@@ -62,6 +69,7 @@ mod tests {
         inspectors::{Aave, Uniswap},
         reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
         test_helpers::*,
+        types::Protocol,
     };
     use ethers::types::U256;
 
@@ -98,6 +106,14 @@ mod tests {
         assert_eq!(
             liquidation.profit,
             U256::from_dec_str("11050220339336343871").unwrap()
+        );
+
+        assert_eq!(
+            inspection.protocols,
+            // SushiSwap is touched in a static call. The bot probably
+            // checked whether it was more profitable to trade the
+            // ETH for YFI on Sushi or Uni
+            vec![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
         );
 
         assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "ETH");

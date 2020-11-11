@@ -40,6 +40,7 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
         &[
             // Sushi YFI
             "0x088ee5007c98a9677165d78dd2109ae4a3d04d0c",
+            // Sushi router
             "d9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
         ],
         Protocol::Sushiswap,

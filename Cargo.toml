@@ -22,6 +22,7 @@ serde = "1.0.117"
 tokio = { version = "0.2.2", features = ["macros"] }
 tokio-postgres = "0.5.0"
 rust_decimal = { version = "1.8.1", features = ["db-postgres", "db-tokio-postgres"] }
+gumdrop = "0.8.0"
 
 [dev-dependencies]
 rustc-hex = "2.1.0"
