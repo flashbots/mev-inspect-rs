@@ -3,7 +3,7 @@ use mev_inspect::{
     inspectors::{Aave, Uniswap},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
-    BatchInspector, CachedProvider, Inspector, Reducer,
+    BatchInspector, CachedProvider, Inspector, MevDB, Reducer,
 };
 use std::convert::TryFrom;
 use std::env;
@@ -32,18 +32,19 @@ async fn main() -> anyhow::Result<()> {
     ];
     let processor = BatchInspector::new(inspectors, reducers);
 
+    let mut db = MevDB::connect("127.0.0.1", "postgres", "mev_inspections").await?;
+    // TODO: Remove these so that the db isn't reset every time
+    db.clear().await?;
+    db.create().await?;
+
     for block in block_start..block_end {
         let traces = provider.trace_block(block.into()).await?;
         let inspections = processor.inspect_many(traces);
 
-        let mut evaluations = Vec::new();
         for inspection in inspections {
             let evaluation = Evaluation::new(inspection, &provider).await?;
-            evaluations.push(evaluation);
+            db.insert(&evaluation).await?;
         }
-
-        // TODO: Publish the data to a database (postgres?)
-        dbg!(evaluations);
     }
 
     Ok(())

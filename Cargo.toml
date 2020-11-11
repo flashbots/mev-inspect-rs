@@ -10,12 +10,18 @@ ethers = { path = "/Users/Georgios/paradigm/ethers-rs/ethers" }
 serde_json = "1.0.59"
 once_cell = "1.4.1"
 itertools = "0.9.0"
-tokio = { version = "0.2", features = ["macros"] }
 anyhow = "1.0.34"
 rustc-hex = "2.1.0"
+
+# cached provider
 thiserror = "1.0.22"
 async-trait = "0.1.41"
 serde = "1.0.117"
+
+# postgres connection
+tokio = { version = "0.2.2", features = ["macros"] }
+tokio-postgres = "0.5.0"
+rust_decimal = { version = "1.8.1", features = ["db-postgres", "db-tokio-postgres"] }
 
 [dev-dependencies]
 rustc-hex = "2.1.0"

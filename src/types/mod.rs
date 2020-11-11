@@ -1,7 +1,7 @@
 //! All the datatypes associated with MEV-Inspect
 pub mod actions;
 
-mod evaluation;
+pub mod evaluation;
 pub use evaluation::Evaluation;
 
 pub(crate) mod classification;
