@@ -124,6 +124,8 @@ async fn main() -> anyhow::Result<()> {
                     let evaluation = Evaluation::new(inspection, &provider).await?;
                     db.insert(&evaluation).await?;
                 }
+
+                println!("Processed {}", block);
             }
         }
     };
