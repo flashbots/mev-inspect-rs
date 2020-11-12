@@ -41,6 +41,7 @@ impl BatchInspector {
         if !i.actions.is_empty() {
             self.inspect(&mut i);
             self.reduce(&mut i);
+            i.prune();
             Some(i)
         } else {
             None

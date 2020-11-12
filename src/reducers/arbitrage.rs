@@ -30,17 +30,19 @@ impl Reducer for ArbitrageReducer {
                 };
 
                 if let Some((j, trade2)) = find_matching_trade_after(&actions, i, trade.t1.token) {
-                    *action = Classification::new(
-                        Arbitrage {
-                            profit: trade2.t2.amount.saturating_sub(trade.t1.amount),
-                            token: trade2.t2.token,
-                            to: trade2.t2.to,
-                        },
-                        // TODO!
-                        Vec::new(),
-                    );
-                    // prune evrything in that range
-                    prune.push((i + 1, j + 1));
+                    if trade2.t2.amount > trade.t1.amount {
+                        *action = Classification::new(
+                            Arbitrage {
+                                profit: trade2.t2.amount.saturating_sub(trade.t1.amount),
+                                token: trade2.t2.token,
+                                to: trade2.t2.to,
+                            },
+                            // TODO!
+                            Vec::new(),
+                        );
+                        // prune everything in that range
+                        prune.push((i + 1, j + 1));
+                    }
                 }
             });
 

@@ -70,11 +70,13 @@ impl Evaluation {
             match action {
                 Classification::Known(action) => match action.as_ref() {
                     SpecificAction::Arbitrage(arb) => {
-                        actions.push(ActionType::Arbitrage);
-                        profit += prices
-                            .quote(arb.token, arb.profit, inspection.block_number)
-                            .await
-                            .map_err(EvalError::Contract)?;
+                        if arb.profit > 0.into() {
+                            actions.push(ActionType::Arbitrage);
+                            profit += prices
+                                .quote(arb.token, arb.profit, inspection.block_number)
+                                .await
+                                .map_err(EvalError::Contract)?;
+                        }
                     }
                     SpecificAction::Liquidation(_) => actions.push(ActionType::Liquidation),
                     SpecificAction::ProfitableLiquidation(liq) => {
