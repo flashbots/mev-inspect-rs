@@ -140,11 +140,21 @@ async fn process_block<T: Into<BlockNumber>, M: Middleware + 'static>(
     let traces = provider.trace_block(block).await?;
     let inspections = processor.inspect_many(traces);
 
-    for inspection in inspections {
-        let evaluation = Evaluation::new(inspection, provider, &prices).await?;
-        db.insert(&evaluation).await?;
+    let t1 = std::time::Instant::now();
+
+    let eval_futs = inspections
+        .into_iter()
+        .map(|inspection| Evaluation::new(inspection, provider, &prices));
+    for evaluation in futures::future::join_all(eval_futs).await {
+        if let Ok(evaluation) = evaluation {
+            db.insert(&evaluation).await?;
+        }
     }
 
-    println!("Processed {:?}", block);
+    println!(
+        "Processed {:?} in {:?}",
+        block,
+        std::time::Instant::now().duration_since(t1)
+    );
     Ok(())
 }
