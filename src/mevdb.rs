@@ -40,7 +40,7 @@ impl<'a> MevDB<'a> {
                     block_number NUMERIC,
                     gas_price NUMERIC,
                     gas_used NUMERIC,
-                    profit NUMERIC,
+                    revenue NUMERIC,
 
                     protocols text[],
                     actions text[],
@@ -66,7 +66,7 @@ impl<'a> MevDB<'a> {
                         block_number,
                         gas_price,
                         gas_used,
-                        profit,
+                        revenue,
                         protocols,
                         actions,
                         eoa,

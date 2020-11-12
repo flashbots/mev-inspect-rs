@@ -2,7 +2,7 @@ use mev_inspect::{
     inspectors::{Aave, Uniswap},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
-    BatchInspector, CachedProvider, Inspector, MevDB, Reducer,
+    BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
 };
 
 use ethers::{
@@ -80,6 +80,9 @@ async fn main() -> anyhow::Result<()> {
     // Instantiate the provider and read from the cached files if needed
     let provider = CachedProvider::new(Provider::try_from(opts.url.as_str())?, opts.cache);
 
+    // Instantiate the thing which will query historical prices
+    let prices = HistoricalPrice::new(provider.clone());
+
     // Use the Uniswap / Aave inspectors
     let inspectors: Vec<Box<dyn Inspector>> = vec![Box::new(Uniswap::new()), Box::new(Aave::new())];
 
@@ -100,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Tx(opts) => {
             let traces = provider.trace_transaction(opts.tx).await?;
             if let Some(inspection) = processor.inspect_one(traces) {
-                let evaluation = Evaluation::new(inspection, &provider).await?;
+                let evaluation = Evaluation::new(inspection, &provider, &prices).await?;
                 println!("Found: {:?}", evaluation.as_ref().hash);
                 println!("Revenue: {:?}", evaluation.profit);
                 println!("Cost: {:?}", evaluation.gas_used * evaluation.gas_price);
@@ -121,9 +124,11 @@ async fn main() -> anyhow::Result<()> {
                 let inspections = processor.inspect_many(traces);
 
                 for inspection in inspections {
-                    let evaluation = Evaluation::new(inspection, &provider).await?;
+                    let evaluation = Evaluation::new(inspection, &provider, &prices).await?;
                     db.insert(&evaluation).await?;
                 }
+
+                println!("Processed {}", block);
             }
         }
     };
