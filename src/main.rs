@@ -112,9 +112,16 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             Command::Blocks(opts) => {
+                let t1 = std::time::Instant::now();
                 for block in opts.from..opts.to {
                     process_block(block, &provider, &processor, &mut db, &prices).await?;
                 }
+
+                println!(
+                    "Processed {} blocks in {:?}",
+                    opts.to - opts.from,
+                    std::time::Instant::now().duration_since(t1)
+                );
             }
         };
     } else {
