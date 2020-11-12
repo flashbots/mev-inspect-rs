@@ -1,5 +1,5 @@
 use mev_inspect::{
-    inspectors::{Aave, Uniswap},
+    inspectors::{Aave, Compound, Uniswap},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
     BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
@@ -11,7 +11,7 @@ use ethers::{
 };
 
 use gumdrop::Options;
-use std::{convert::TryFrom, path::PathBuf};
+use std::{convert::TryFrom, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Options, Clone)]
 struct Opts {
@@ -75,8 +75,11 @@ async fn main() -> anyhow::Result<()> {
     // Instantiate the thing which will query historical prices
     let prices = HistoricalPrice::new(provider.clone());
 
-    // Use the Uniswap / Aave inspectors
-    let inspectors: Vec<Box<dyn Inspector>> = vec![Box::new(Uniswap::new()), Box::new(Aave::new())];
+    let inspectors: Vec<Box<dyn Inspector>> = vec![
+        Box::new(Uniswap::new()),
+        Box::new(Aave::new()),
+        Box::new(Compound::create(Arc::new(provider.clone())).await?),
+    ];
 
     let reducers: Vec<Box<dyn Reducer>> = vec![
         Box::new(LiquidationReducer::new()),
