@@ -2,12 +2,12 @@
 pub mod actions;
 
 pub mod evaluation;
-pub use evaluation::Evaluation;
+pub use evaluation::{EvalError, Evaluation};
 
 pub(crate) mod classification;
 pub use classification::Classification;
 
-mod inspection;
+pub(crate) mod inspection;
 pub use inspection::Inspection;
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]

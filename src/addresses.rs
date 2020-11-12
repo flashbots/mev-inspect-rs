@@ -3,7 +3,7 @@ use super::types::Protocol;
 use ethers::types::Address;
 
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub fn lookup(address: Address) -> String {
     ADDRESSBOOK
@@ -22,6 +22,7 @@ fn insert_many<T: Clone>(
     }
     map
 }
+
 // Uniswap-like addresses
 pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     let map = HashMap::new();
@@ -47,6 +48,13 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     );
 
     map
+});
+
+pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
+    let mut set = HashSet::new();
+    // 1inch
+    set.insert(parse_address("0x11111254369792b2ca5d084ab5eea397ca8fa48b"));
+    set
 });
 
 pub static AAVE_LENDING_POOL: Lazy<Address> =

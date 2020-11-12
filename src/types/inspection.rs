@@ -1,8 +1,12 @@
-use crate::types::{
-    classification::{ActionTrace, CallTrace},
-    Classification, Protocol, Status,
+use crate::{
+    addresses::FILTER,
+    types::{
+        classification::{ActionTrace, CallTrace},
+        Classification, Protocol, Status,
+    },
 };
 use ethers::types::{Action, Address, CallType, Trace, TxHash};
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq)]
 /// The result of an inspection of a trace along with its inspected subtraces
@@ -87,53 +91,60 @@ impl Inspection {
     }
 }
 
-impl<T: IntoIterator<Item = Trace>> From<T> for Inspection {
-    fn from(traces: T) -> Self {
-        // TODO: Can we get the first element in a better way?
-        let mut contract = None;
-        let mut from = None;
-        let mut hash = None;
-        let mut status = None;
-        let mut proxy_impl = None;
-        let mut block_number = None;
+/// Helper type to bypass https://github.com/rust-lang/rust/issues/50133#issuecomment-646908391
+pub(crate) struct TraceWrapper<T>(pub(crate) T);
+impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
+    type Error = ();
 
-        let actions: Vec<Classification> = traces
+    fn try_from(traces: TraceWrapper<T>) -> Result<Self, Self::Error> {
+        let mut traces = traces.0.into_iter().peekable();
+
+        // get the first trace
+        let trace = match traces.peek() {
+            Some(inner) => inner,
+            None => return Err(()),
+        };
+        let call = match trace.action {
+            Action::Call(ref call) => call,
+            // the first action we care about must be a call. everything else
+            // is junk
+            _ => return Err(()),
+        };
+
+        // Filter out unwanted calls
+        if FILTER.get(&call.to).is_some() {
+            return Err(());
+        }
+
+        let mut inspection = Inspection {
+            status: Status::Success,
+            // all unclassified calls
+            actions: Vec::new(),
+            // start off with empty protocols since everything is unclassified
+            protocols: Vec::new(),
+            from: call.from,
+            contract: call.to,
+            proxy_impl: None,
+            hash: trace.transaction_hash.unwrap_or(TxHash::zero()),
+            block_number: trace.block_number,
+        };
+
+        inspection.actions = traces
             .into_iter()
             .filter_map(|trace| {
                 // Revert if all subtraces revert? There are counterexamples
                 // e.g. when a low-level trace's revert is handled
-                if status.is_none() && trace.error.is_some() {
-                    status = Some(Status::Reverted);
+                if trace.error.is_some() {
+                    inspection.status = Status::Reverted;
                 }
 
                 match trace.action {
                     Action::Call(call) => {
-                        // The first call is the msg.sender
-                        if from.is_none() {
-                            from = Some(call.from)
-                        }
-
-                        // The first receiver is the contract being used.
-                        // This will either be the bot contract or the
-                        if contract.is_none() {
-                            contract = Some(call.to)
-                        }
-
-                        if proxy_impl.is_none()
+                        if inspection.proxy_impl.is_none()
                             && call.call_type == CallType::DelegateCall
-                            && Some(call.from) == contract
+                            && call.from == inspection.contract
                         {
-                            proxy_impl = Some(call.to);
-                        }
-
-                        // The first hash is the tx hash
-                        if hash.is_none() {
-                            hash = trace.transaction_hash;
-                        }
-
-                        // Set the block number
-                        if block_number.is_none() {
-                            block_number = Some(trace.block_number);
+                            inspection.proxy_impl = Some(call.to);
                         }
 
                         Some(
@@ -149,20 +160,6 @@ impl<T: IntoIterator<Item = Trace>> From<T> for Inspection {
             })
             .collect();
 
-        Inspection {
-            // assume success if no revert was found
-            status: status.unwrap_or(Status::Success),
-            // all unclassified calls
-            actions,
-            // start off with empty protocols since everything is unclassified
-            protocols: Vec::new(),
-
-            // set the data from the first call
-            from: from.unwrap_or_default(),
-            contract: contract.unwrap_or_default(),
-            proxy_impl,
-            hash: hash.unwrap_or_default(),
-            block_number: block_number.unwrap_or_default(),
-        }
+        Ok(inspection)
     }
 }

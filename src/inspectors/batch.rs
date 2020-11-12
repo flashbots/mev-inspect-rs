@@ -1,4 +1,7 @@
-use crate::{types::Inspection, Inspector, Reducer};
+use crate::{
+    types::inspection::{Inspection, TraceWrapper},
+    Inspector, Reducer,
+};
 use ethers::types::Trace;
 use itertools::Itertools;
 
@@ -33,19 +36,21 @@ impl BatchInspector {
         inspections
     }
 
-    pub fn inspect_one<'a>(
-        &'a self,
-        traces: impl IntoIterator<Item = Trace>,
-    ) -> Option<Inspection> {
-        let mut i = Inspection::from(traces);
-        if !i.actions.is_empty() {
-            self.inspect(&mut i);
-            self.reduce(&mut i);
-            i.prune();
-            Some(i)
-        } else {
-            None
+    pub fn inspect_one<'a, T>(&'a self, traces: T) -> Option<Inspection>
+    where
+        T: IntoIterator<Item = Trace>,
+    {
+        use std::convert::TryFrom;
+        let mut res = None;
+        if let Some(mut i) = Inspection::try_from(TraceWrapper(traces)).ok() {
+            if !i.actions.is_empty() {
+                self.inspect(&mut i);
+                self.reduce(&mut i);
+                i.prune();
+                res = Some(i);
+            }
         }
+        res
     }
 
     /// Decodes the inspection's actions
