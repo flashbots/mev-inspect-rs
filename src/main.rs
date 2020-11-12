@@ -6,8 +6,8 @@ use mev_inspect::{
 };
 
 use ethers::{
-    providers::{Middleware, Provider},
-    types::TxHash,
+    providers::{Middleware, Provider, StreamExt},
+    types::{BlockNumber, TxHash},
 };
 
 use gumdrop::Options;
@@ -68,14 +68,6 @@ struct BlockOpts {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opts = Opts::parse_args_default_or_exit();
-    let cmd = if let Some(cmd) = opts.cmd {
-        cmd
-    } else {
-        eprintln!("No command supplied.");
-        eprintln!("Usage: mev-inspect [OPTIONS]");
-        eprintln!("{}", Opts::usage());
-        return Ok(());
-    };
 
     // Instantiate the provider and read from the cached files if needed
     let provider = CachedProvider::new(Provider::try_from(opts.url.as_str())?, opts.cache);
@@ -99,39 +91,60 @@ async fn main() -> anyhow::Result<()> {
         db.create().await?;
     }
 
-    match cmd {
-        Command::Tx(opts) => {
-            let traces = provider.trace_transaction(opts.tx).await?;
-            if let Some(inspection) = processor.inspect_one(traces) {
-                let evaluation = Evaluation::new(inspection, &provider, &prices).await?;
-                println!("Found: {:?}", evaluation.as_ref().hash);
-                println!("Revenue: {:?}", evaluation.profit);
-                println!("Cost: {:?}", evaluation.gas_used * evaluation.gas_price);
-                println!("Actions: {:?}", evaluation.actions);
-
-                if !db.exists(opts.tx).await? {
-                    db.insert(&evaluation).await?;
-                } else {
-                    eprintln!("Tx already in the database, skipping insertion.");
-                }
-            } else {
-                eprintln!("No actions found for tx {:?}", opts.tx);
-            }
-        }
-        Command::Blocks(opts) => {
-            for block in opts.from..opts.to {
-                let traces = provider.trace_block(block.into()).await?;
-                let inspections = processor.inspect_many(traces);
-
-                for inspection in inspections {
+    if let Some(cmd) = opts.cmd {
+        match cmd {
+            Command::Tx(opts) => {
+                let traces = provider.trace_transaction(opts.tx).await?;
+                if let Some(inspection) = processor.inspect_one(traces) {
                     let evaluation = Evaluation::new(inspection, &provider, &prices).await?;
-                    db.insert(&evaluation).await?;
+                    println!("Found: {:?}", evaluation.as_ref().hash);
+                    println!("Revenue: {:?}", evaluation.profit);
+                    println!("Cost: {:?}", evaluation.gas_used * evaluation.gas_price);
+                    println!("Actions: {:?}", evaluation.actions);
+
+                    if !db.exists(opts.tx).await? {
+                        db.insert(&evaluation).await?;
+                    } else {
+                        eprintln!("Tx already in the database, skipping insertion.");
+                    }
+                } else {
+                    eprintln!("No actions found for tx {:?}", opts.tx);
                 }
-
-                println!("Processed {}", block);
             }
+            Command::Blocks(opts) => {
+                for block in opts.from..opts.to {
+                    process_block(block, &provider, &processor, &mut db, &prices).await?;
+                }
+            }
+        };
+    } else {
+        let mut watcher = provider.watch_blocks().await?;
+        while let Some(_) = watcher.next().await {
+            let block = provider.get_block_number().await?;
+            println!("Got block: {}", block.as_u64());
+            process_block(block, &provider, &processor, &mut db, &prices).await?;
         }
-    };
+    }
 
+    Ok(())
+}
+
+async fn process_block<T: Into<BlockNumber>, M: Middleware + 'static>(
+    block: T,
+    provider: &M,
+    processor: &BatchInspector,
+    db: &mut MevDB<'_>,
+    prices: &HistoricalPrice<M>,
+) -> anyhow::Result<()> {
+    let block = block.into();
+    let traces = provider.trace_block(block).await?;
+    let inspections = processor.inspect_many(traces);
+
+    for inspection in inspections {
+        let evaluation = Evaluation::new(inspection, provider, &prices).await?;
+        db.insert(&evaluation).await?;
+    }
+
+    println!("Processed {:?}", block);
     Ok(())
 }
