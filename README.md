@@ -2,6 +2,14 @@
 
 **Ethereum MEV Inspector in Rust**
 
+## Inspectors
+
+- Curve
+- Balancer
+- Uniswap (& clones)
+- Aave
+- Compound
+
 ## Installing
 
 `cargo build --release`
