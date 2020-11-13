@@ -72,7 +72,7 @@ mod tests {
     use super::*;
     use crate::{
         addresses::{ADDRESSBOOK, WETH},
-        inspectors::{Aave, Uniswap, ERC20},
+        inspectors::{Aave, Curve, Uniswap, ERC20},
         reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
         test_helpers::*,
         types::Protocol,
@@ -95,6 +95,7 @@ mod tests {
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Aave::new()),
+                Box::new(Curve::new()), // even though the Curve inspector is on, there's no Curve in the found protocols
             ],
             vec![
                 // Classify liquidations first
@@ -140,5 +141,38 @@ mod tests {
             get_trace("0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627");
         let uni = Uniswap::new();
         uni.inspect(&mut inspection);
+    }
+
+    #[test]
+    fn curve_arb() {
+        let mut inspection = read_trace("curve_arb.json");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(ERC20::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Curve::new()),
+            ],
+            vec![
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let known = inspection.known();
+
+        let arb = known
+            .iter()
+            .find_map(|action| action.as_ref().arbitrage())
+            .unwrap();
+        assert_eq!(arb.profit, U256::from_dec_str("14397525374450478").unwrap());
+        assert_eq!(arb.token, *WETH);
+        assert_eq!(
+            inspection.protocols,
+            vec![Protocol::Sushiswap, Protocol::Curve]
+        );
     }
 }

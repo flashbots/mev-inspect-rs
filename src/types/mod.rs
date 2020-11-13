@@ -23,12 +23,20 @@ pub enum Status {
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Ord)]
 /// The supported protocols
 pub enum Protocol {
+    // Uniswap & Forks
     Uniswap,
     Sushiswap,
     SakeSwap,
     UniswapClone,
+
+    // Other AMMs
+    Curve,
+    Balancer,
+
+    // Lending / Liquidations
     Aave,
-    KnownBot,
-    Flashloan,
     Compound,
+
+    // Misc.
+    Flashloan,
 }

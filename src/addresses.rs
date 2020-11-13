@@ -40,6 +40,8 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     let map = insert_many(
         map,
         &[
+            // sUSD - WETH
+            "0xf1f85b2c54a2bd284b1cf4141d64fd171bd85539",
             // Sushi YFI
             "0x088ee5007c98a9677165d78dd2109ae4a3d04d0c",
             // Sushi router
@@ -63,6 +65,9 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0x11111254369792b2ca5d084ab5eea397ca8fa48b"));
     set
 });
+
+pub static CURVE_REGISTRY: Lazy<Address> =
+    Lazy::new(|| parse_address("7002B727Ef8F5571Cb5F9D70D13DBEEb4dFAe9d1"));
 
 pub static CETH: Lazy<Address> =
     Lazy::new(|| parse_address("4Ddc2D193948926D02f9B1fE9e1daa0718270ED5"));

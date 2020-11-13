@@ -8,6 +8,10 @@ mod uniswap;
 /// A Uniswap inspector
 pub use uniswap::Uniswap;
 
+mod curve;
+/// A Curve inspector
+pub use curve::Curve;
+
 mod aave;
 /// An Aave inspector
 pub use aave::Aave;
