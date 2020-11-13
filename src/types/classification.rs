@@ -106,9 +106,9 @@ impl Classification {
         }
     }
 
-    pub fn to_call(&self) -> Option<&Call> {
+    pub fn to_call(&self) -> Option<&CallTrace> {
         match self {
-            Classification::Unknown(ref inner) => Some(&inner.call),
+            Classification::Unknown(ref inner) => Some(&inner),
             _ => None,
         }
     }

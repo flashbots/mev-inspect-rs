@@ -32,6 +32,7 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
             "0x2b095969ae40BcE8BaAF515B16614A636C22a6Db",
             "0x2fdbadf3c4d5a8666bc06645b8358ab803996e28",
             "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+            "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc",
         ],
         Protocol::Uniswap,
     );
@@ -45,6 +46,12 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
             "d9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
         ],
         Protocol::Sushiswap,
+    );
+
+    let map = insert_many(
+        map,
+        &["0x89ba27e73c929ebef87c9ff4b43052012ea838d9"],
+        Protocol::SakeSwap,
     );
 
     map
@@ -68,6 +75,9 @@ pub static COMP_ORACLE: Lazy<Address> =
 
 pub static AAVE_LENDING_POOL: Lazy<Address> =
     Lazy::new(|| parse_address("398eC7346DcD622eDc5ae82352F02bE94C62d119"));
+
+pub static AAVE_LENDING_POOL_CORE: Lazy<Address> =
+    Lazy::new(|| parse_address("3dfd23a6c5e8bbcfc9581d2e864a68feb6a076d3"));
 
 pub static WETH: Lazy<Address> =
     Lazy::new(|| parse_address("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"));

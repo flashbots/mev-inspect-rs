@@ -71,8 +71,8 @@ impl BatchInspector {
 mod tests {
     use super::*;
     use crate::{
-        addresses::ADDRESSBOOK,
-        inspectors::{Aave, Uniswap},
+        addresses::{ADDRESSBOOK, WETH},
+        inspectors::{Aave, Uniswap, ERC20},
         reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
         test_helpers::*,
         types::Protocol,
@@ -91,7 +91,11 @@ mod tests {
             get_trace("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
 
         let inspector = BatchInspector::new(
-            vec![Box::new(Uniswap::new()), Box::new(Aave::new())],
+            vec![
+                Box::new(ERC20::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Aave::new()),
+            ],
             vec![
                 // Classify liquidations first
                 Box::new(LiquidationReducer::new()),

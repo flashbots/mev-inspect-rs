@@ -41,12 +41,28 @@ mod prices;
 pub use prices::HistoricalPrice;
 
 /// Checks if `a2` is a subtrace of `a1`
-pub fn is_subtrace(a1: &[usize], a2: &[usize]) -> bool {
+pub(crate) fn is_subtrace(a1: &[usize], a2: &[usize]) -> bool {
     if a1.is_empty() {
         return false;
     }
 
     a1 == &a2[..std::cmp::min(a1.len(), a2.len())]
+}
+
+use crate::types::Classification;
+use ethers::types::Call;
+pub(crate) fn actions_after(
+    actions: &mut [Classification],
+    i: usize,
+) -> (&mut Classification, Vec<&Call>) {
+    let (actions, rest) = actions.split_at_mut(i + 1);
+    let action = &mut actions[actions.len() - 1];
+
+    let subtraces = rest
+        .iter()
+        .filter_map(|t| t.to_call().map(|x| &x.call))
+        .collect();
+    (action, subtraces)
 }
 
 #[cfg(test)]

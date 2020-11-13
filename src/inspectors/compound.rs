@@ -1,4 +1,5 @@
 use crate::{
+    actions_after,
     addresses::{CETH, COMPTROLLER, COMP_ORACLE, WETH},
     traits::Inspector,
     types::{actions::Liquidation, Classification, Inspection, Protocol, Status},
@@ -213,14 +214,6 @@ impl Compound {
             &address
         }
     }
-}
-
-fn actions_after(actions: &mut [Classification], i: usize) -> (&mut Classification, Vec<&Call>) {
-    let (actions, rest) = actions.split_at_mut(i + 1);
-    let action = &mut actions[actions.len() - 1];
-
-    let subtraces = rest.iter().filter_map(|t| t.to_call()).collect();
-    (action, subtraces)
 }
 
 #[cfg(test)]

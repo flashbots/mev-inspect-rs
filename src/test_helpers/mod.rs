@@ -1,8 +1,4 @@
-use crate::types::{
-    actions::{Arbitrage, SpecificAction, Trade, Transfer},
-    inspection::TraceWrapper,
-    Classification, Inspection, Status,
-};
+use crate::types::{inspection::TraceWrapper, Classification, Inspection, Status};
 use ethers::types::{Address, Trace, TxHash};
 use once_cell::sync::Lazy;
 use std::convert::TryInto;
@@ -53,45 +49,4 @@ pub fn get_trace(hash: &str) -> Inspection {
     )
     .try_into()
     .unwrap()
-}
-
-pub fn to_transfer(action: &Classification) -> Transfer {
-    match action {
-        Classification::Known(action) => match action.as_ref() {
-            SpecificAction::Transfer(ref t) => t.clone(),
-            _ => unreachable!("Non-transfer found"),
-        },
-        _ => panic!("could not classify"),
-    }
-}
-
-pub fn to_trade(action: &Classification) -> Trade {
-    match action {
-        Classification::Known(action) => match action.as_ref() {
-            SpecificAction::Trade(ref t) => t.clone(),
-            _ => unreachable!("Non-trade found"),
-        },
-        _ => panic!("could not classify"),
-    }
-}
-
-pub fn to_arb(action: &Classification) -> Arbitrage {
-    match action {
-        Classification::Known(action) => match action.as_ref() {
-            SpecificAction::Arbitrage(ref t) => t.clone(),
-            _ => unreachable!("Non-arb found"),
-        },
-        _ => panic!("could not classify"),
-    }
-}
-
-pub fn is_weth(action: &Classification, deposit: bool) -> bool {
-    match action {
-        Classification::Known(action) => match action.as_ref() {
-            SpecificAction::WethDeposit { .. } => deposit,
-            SpecificAction::WethWithdrawal { .. } => !deposit,
-            _ => false,
-        },
-        _ => false,
-    }
 }
