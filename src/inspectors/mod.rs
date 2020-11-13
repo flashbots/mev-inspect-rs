@@ -12,6 +12,10 @@ mod curve;
 /// A Curve inspector
 pub use curve::Curve;
 
+mod balancer;
+/// A Balancer inspector
+pub use balancer::Balancer;
+
 mod aave;
 /// An Aave inspector
 pub use aave::Aave;

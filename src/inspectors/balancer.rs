@@ -17,11 +17,11 @@ impl Balancer {
     pub fn new() -> Self {
         Self {
             bpool: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../../abi/bpool.json"))
+                serde_json::from_str::<Abi>(include_str!("../../abi/bpool.json"))
                     .expect("could not parse uniswap abi")
             }),
             bproxy: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../../abi/bproxy.json"))
+                serde_json::from_str::<Abi>(include_str!("../../abi/bproxy.json"))
                     .expect("could not parse uniswap abi")
             }),
         }
