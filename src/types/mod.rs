@@ -25,6 +25,7 @@ pub enum Status {
 pub enum Protocol {
     Uniswap,
     Sushiswap,
+    SakeSwap,
     UniswapClone,
     Aave,
     KnownBot,

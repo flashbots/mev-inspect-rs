@@ -1,6 +1,10 @@
 use crate::{
     addresses::{ETH, WETH},
-    types::actions::{Deposit, SpecificAction, Transfer, Withdrawal},
+    types::{
+        actions::{Deposit, SpecificAction, Transfer, Withdrawal},
+        Classification, Inspection,
+    },
+    Inspector,
 };
 use ethers::{
     abi::parse_abi,
@@ -11,6 +15,18 @@ use ethers::{
 #[derive(Debug, Clone)]
 /// Decodes ERC20 calls
 pub struct ERC20(BaseContract);
+
+impl Inspector for ERC20 {
+    fn inspect(&self, inspection: &mut Inspection) {
+        inspection.actions.iter_mut().for_each(|classification| {
+            if let Some(calltrace) = classification.to_call() {
+                if let Some(transfer) = self.try_parse(calltrace.as_ref()) {
+                    *classification = Classification::new(transfer, calltrace.trace_address.clone())
+                }
+            }
+        })
+    }
+}
 
 impl ERC20 {
     pub fn new() -> Self {
@@ -28,7 +44,7 @@ impl ERC20 {
     }
 
     /// Parse a Call trace to discover a token action
-    pub fn parse(&self, trace_call: &TraceCall) -> Option<SpecificAction> {
+    pub fn try_parse(&self, trace_call: &TraceCall) -> Option<SpecificAction> {
         if trace_call.gas == 2300.into() {
             return None;
         }
