@@ -78,7 +78,37 @@ impl Evaluation {
                                 .map_err(EvalError::Contract)?;
                         }
                     }
-                    SpecificAction::Liquidation(_) => actions.push(ActionType::Liquidation),
+                    SpecificAction::Liquidation(liq) => {
+                        let res = futures::future::join(
+                            prices.quote(liq.sent_token, liq.sent_amount, inspection.block_number),
+                            prices.quote(
+                                liq.received_token,
+                                liq.received_amount,
+                                inspection.block_number,
+                            ),
+                        )
+                        .await;
+
+                        match res {
+                            (Ok(amount_in), Ok(amount_out)) => {
+                                profit += amount_out.saturating_sub(amount_in);
+                            }
+                            _ => println!("Could not fetch prices from Uniswap"),
+                        };
+
+                        if res.0.is_err() {
+                            println!("Sent: {} of token {:?}", liq.sent_amount, liq.sent_token);
+                        }
+
+                        if res.1.is_err() {
+                            println!(
+                                "Received: {} of token {:?}",
+                                liq.received_amount, liq.received_token
+                            );
+                        }
+
+                        actions.push(ActionType::Liquidation)
+                    }
                     SpecificAction::ProfitableLiquidation(liq) => {
                         actions.push(ActionType::Liquidation);
                         profit += prices
