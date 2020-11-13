@@ -101,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
                     println!("Revenue: {:?}", evaluation.profit);
                     println!("Cost: {:?}", evaluation.gas_used * evaluation.gas_price);
                     println!("Actions: {:?}", evaluation.actions);
+                    println!("Protocols: {:?}", evaluation.inspection.protocols);
 
                     if !db.exists(opts.tx).await? {
                         db.insert(&evaluation).await?;
