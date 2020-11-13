@@ -57,6 +57,15 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set
 });
 
+pub static CETH: Lazy<Address> =
+    Lazy::new(|| parse_address("4Ddc2D193948926D02f9B1fE9e1daa0718270ED5"));
+
+pub static COMPTROLLER: Lazy<Address> =
+    Lazy::new(|| parse_address("3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B"));
+
+pub static COMP_ORACLE: Lazy<Address> =
+    Lazy::new(|| parse_address("922018674c12a7F0D394ebEEf9B58F186CdE13c1"));
+
 pub static AAVE_LENDING_POOL: Lazy<Address> =
     Lazy::new(|| parse_address("398eC7346DcD622eDc5ae82352F02bE94C62d119"));
 
@@ -108,6 +117,7 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
         ("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "ETH"),
         ("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2", "WETH"),
         ("0x0bc529c00c6401aef6d220be8c6ea1667f6ad93e", "YFI"),
+        ("0xe41d2489571d322189246dafa5ebde1f4699f498", "ZRX"),
         (
             "0x5dbcf33d8c2e976c6b560249878e6f1491bca25c",
             "yyDAI+yUSDC+yUSDT+yTUSD",
@@ -181,8 +191,7 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
     map
 });
 
-// Map of protocols
-fn parse_address(addr: &str) -> Address {
+pub fn parse_address(addr: &str) -> Address {
     if addr.starts_with("0x") {
         addr[2..].parse().unwrap()
     } else {

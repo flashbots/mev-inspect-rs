@@ -20,6 +20,9 @@ mod batch;
 /// Takes multiple inspectors
 pub use batch::BatchInspector;
 
+mod compound;
+pub use compound::Compound;
+
 use crate::types::{
     actions::{Trade, Transfer},
     Classification,

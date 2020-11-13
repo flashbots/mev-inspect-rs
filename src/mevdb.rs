@@ -145,7 +145,7 @@ fn u256_decimal(src: U256) -> Result<Decimal, rust_decimal::Error> {
     Decimal::from_str(&src.to_string())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "postgres-tests"))]
 mod tests {
     use super::*;
     use crate::types::evaluation::ActionType;

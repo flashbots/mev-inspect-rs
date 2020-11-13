@@ -1,5 +1,5 @@
 use mev_inspect::{
-    inspectors::{Aave, Uniswap},
+    inspectors::{Aave, Compound, Uniswap},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
     BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
@@ -11,7 +11,7 @@ use ethers::{
 };
 
 use gumdrop::Options;
-use std::{convert::TryFrom, path::PathBuf};
+use std::{convert::TryFrom, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Options, Clone)]
 struct Opts {
@@ -75,8 +75,11 @@ async fn main() -> anyhow::Result<()> {
     // Instantiate the thing which will query historical prices
     let prices = HistoricalPrice::new(provider.clone());
 
-    // Use the Uniswap / Aave inspectors
-    let inspectors: Vec<Box<dyn Inspector>> = vec![Box::new(Uniswap::new()), Box::new(Aave::new())];
+    let inspectors: Vec<Box<dyn Inspector>> = vec![
+        Box::new(Uniswap::new()),
+        Box::new(Aave::new()),
+        Box::new(Compound::create(Arc::new(provider.clone())).await?),
+    ];
 
     let reducers: Vec<Box<dyn Reducer>> = vec![
         Box::new(LiquidationReducer::new()),
@@ -85,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
     ];
     let processor = BatchInspector::new(inspectors, reducers);
 
-    let mut db = MevDB::connect("127.0.0.1", "postgres", "mev_inspections").await?;
+    let mut db = MevDB::connect(&opts.db_url, &opts.db_user, &opts.db_table).await?;
     if opts.reset {
         db.clear().await?;
         db.create().await?;
@@ -101,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
                     println!("Revenue: {:?}", evaluation.profit);
                     println!("Cost: {:?}", evaluation.gas_used * evaluation.gas_price);
                     println!("Actions: {:?}", evaluation.actions);
+                    println!("Protocols: {:?}", evaluation.inspection.protocols);
 
                     if !db.exists(opts.tx).await? {
                         db.insert(&evaluation).await?;
@@ -114,6 +118,8 @@ async fn main() -> anyhow::Result<()> {
             Command::Blocks(opts) => {
                 let t1 = std::time::Instant::now();
                 for block in opts.from..opts.to {
+                    // TODO: Can we do the block processing in parallel? Theoretically
+                    // it should be possible
                     process_block(block, &provider, &processor, &mut db, &prices).await?;
                 }
 
@@ -154,7 +160,9 @@ async fn process_block<T: Into<BlockNumber>, M: Middleware + 'static>(
         .map(|inspection| Evaluation::new(inspection, provider, &prices));
     for evaluation in futures::future::join_all(eval_futs).await {
         if let Ok(evaluation) = evaluation {
-            db.insert(&evaluation).await?;
+            if !db.exists(evaluation.inspection.hash).await? {
+                db.insert(&evaluation).await?;
+            }
         }
     }
 

@@ -29,4 +29,5 @@ pub enum Protocol {
     Aave,
     KnownBot,
     Flashloan,
+    Compound,
 }

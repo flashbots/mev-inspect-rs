@@ -1,10 +1,12 @@
-use crate::addresses::{ETH, WETH};
+use crate::addresses::{parse_address, ETH, WETH};
 use ethers::{
     contract::{abigen, ContractError},
     providers::Middleware,
     types::{Address, BlockNumber, U256},
+    utils::WEI_IN_ETHER,
 };
-use std::sync::Arc;
+use once_cell::sync::Lazy;
+use std::{collections::HashMap, sync::Arc};
 
 // Generate type-safe bindings to Uniswap's router
 abigen!(Uniswap, "abi/unirouterv2.json");
@@ -14,6 +16,13 @@ abigen!(Uniswap, "abi/unirouterv2.json");
 pub struct HistoricalPrice<M> {
     uniswap: Uniswap<M>,
 }
+
+static DECIMALS: Lazy<HashMap<Address, usize>> = Lazy::new(|| {
+    [("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 6)]
+        .iter()
+        .map(|(addr, decimals)| (parse_address(addr), *decimals))
+        .collect::<HashMap<_, _>>()
+});
 
 impl<M: Middleware> HistoricalPrice<M> {
     /// Instantiates a Unirouter
@@ -41,46 +50,92 @@ impl<M: Middleware> HistoricalPrice<M> {
             return Ok(amount);
         }
 
+        // get a marginal price for a 1 ETH buy order
+        let one = DECIMALS
+            .get(&token)
+            .map(|decimals| U256::from(10u64.pow(*decimals as u32)))
+            .unwrap_or(WEI_IN_ETHER);
+
         // ask uniswap how much we'd get from the TOKEN -> WETH path
         let amounts = self
             .uniswap
-            .get_amounts_out(amount, vec![token, *WETH])
+            .get_amounts_out(one, vec![token, *WETH])
             .block(block)
             .call()
             .await?;
-        // .map_err(HistoricalPriceError::MiddlewareError)?;
-        debug_assert_eq!(amount, amounts[0]);
-        debug_assert_eq!(amounts.len(), 2);
 
-        Ok(amounts[1])
+        debug_assert_eq!(one, amounts[0]);
+        debug_assert_eq!(amounts.len(), 2);
+        Ok(amounts[1] * amount / one)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ethers::providers::{Http, Provider};
+    use ethers::{
+        providers::{Http, Provider},
+        utils::WEI_IN_ETHER as WEI,
+    };
     use std::convert::TryFrom;
 
     fn to_eth(amt: U256) -> U256 {
         ethers::utils::WEI_IN_ETHER / amt
     }
 
-    const ONE: u64 = 1000000;
+    static PROVIDER: Lazy<Provider<Http>> = Lazy::new(|| {
+        let url: String = std::env::var("ARCHIVE").expect("Archive node URL should be set");
+        let provider = Provider::<Http>::try_from(url).unwrap();
+        provider
+    });
 
     #[tokio::test]
     #[ignore] // This test can only run against an archive node
     async fn check_historical_price() {
-        let url: String = std::env::var("ARCHIVE").expect("Archive node URL should be set");
-        let provider = Provider::<Http>::try_from(url).unwrap();
-        let prices = HistoricalPrice::new(provider);
+        let prices = HistoricalPrice::new(PROVIDER.clone());
+        let one = U256::from(1e6 as u64);
 
-        // 1 usdc (6 decimals) in ETH
-        let usdc = "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".parse().unwrap();
-        let usdc_amount = prices.quote(usdc, ONE, BlockNumber::Latest).await.unwrap();
-        assert_eq!(to_eth(usdc_amount), 466.into());
+        for (token, amount, block, expected) in [
+            (
+                "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                one,
+                11248959u64,
+                465u64,
+            ),
+            (
+                "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                one,
+                10532013,
+                302,
+            ),
+            (
+                "e41d2489571d322189246dafa5ebde1f4699f498",
+                WEI,
+                11248959,
+                1277,
+            ),
+        ]
+        .iter()
+        {
+            let amount = prices
+                .quote(parse_address(token), *amount, *block)
+                .await
+                .unwrap();
+            assert_eq!(to_eth(amount), (*expected).into());
+        }
+    }
 
-        let usdc_amount = prices.quote(usdc, ONE, 10532013).await.unwrap();
-        assert_eq!(to_eth(usdc_amount), 302.into());
+    #[tokio::test]
+    #[ignore] // This test can only run against an archive node
+    async fn old_block_fail() {
+        let prices = HistoricalPrice::new(PROVIDER.clone());
+        prices
+            .quote(
+                parse_address("e41d2489571d322189246dafa5ebde1f4699f498"),
+                WEI,
+                9082920,
+            )
+            .await
+            .unwrap_err();
     }
 }

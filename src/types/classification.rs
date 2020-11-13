@@ -105,6 +105,13 @@ impl Classification {
             _ => None,
         }
     }
+
+    pub fn to_call(&self) -> Option<&Call> {
+        match self {
+            Classification::Unknown(ref inner) => Some(&inner.call),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Debug for Classification {

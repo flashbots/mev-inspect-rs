@@ -27,7 +27,7 @@ impl Aave {
 }
 
 impl Inspector for Aave {
-    fn classify(&self, inspection: &mut Inspection) {
+    fn inspect(&self, inspection: &mut Inspection) {
         let actions = &mut inspection.actions;
 
         let protocols = actions
