@@ -88,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
     ];
     let processor = BatchInspector::new(inspectors, reducers);
 
-    let mut db = MevDB::connect("127.0.0.1", "postgres", "mev_inspections").await?;
+    let mut db = MevDB::connect(&opts.db_url, &opts.db_user, &opts.db_table).await?;
     if opts.reset {
         db.clear().await?;
         db.create().await?;
@@ -118,6 +118,8 @@ async fn main() -> anyhow::Result<()> {
             Command::Blocks(opts) => {
                 let t1 = std::time::Instant::now();
                 for block in opts.from..opts.to {
+                    // TODO: Can we do the block processing in parallel? Theoretically
+                    // it should be possible
                     process_block(block, &provider, &processor, &mut db, &prices).await?;
                 }
 
@@ -158,7 +160,9 @@ async fn process_block<T: Into<BlockNumber>, M: Middleware + 'static>(
         .map(|inspection| Evaluation::new(inspection, provider, &prices));
     for evaluation in futures::future::join_all(eval_futs).await {
         if let Ok(evaluation) = evaluation {
-            db.insert(&evaluation).await?;
+            if !db.exists(evaluation.inspection.hash).await? {
+                db.insert(&evaluation).await?;
+            }
         }
     }
 
