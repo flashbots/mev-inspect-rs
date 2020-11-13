@@ -72,7 +72,7 @@ mod tests {
     use super::*;
     use crate::{
         addresses::{ADDRESSBOOK, WETH},
-        inspectors::{Aave, Curve, Uniswap, ERC20},
+        inspectors::{Aave, Balancer, Curve, Uniswap, ERC20},
         reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
         test_helpers::*,
         types::Protocol,
@@ -135,12 +135,73 @@ mod tests {
     }
 
     #[test]
-    // https://etherscan.io/tx/0x1d9a2c8bfcd9f6e133c490d892fe3869bada484160a81966e645616cfc21652a
+    // https://etherscan.io/tx/0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627
     fn balancer_uni_arb() {
         let mut inspection =
             get_trace("0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627");
-        let uni = Uniswap::new();
-        uni.inspect(&mut inspection);
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(ERC20::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Curve::new()),
+                Box::new(Balancer::new()),
+            ],
+            vec![
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let known = inspection.known();
+        let arb = known
+            .iter()
+            .find_map(|action| action.as_ref().arbitrage())
+            .unwrap();
+        assert_eq!(arb.profit, U256::from_dec_str("41108016724856778").unwrap());
+        assert_eq!(arb.token, *WETH);
+        assert_eq!(
+            inspection.protocols,
+            vec![Protocol::Uniswap, Protocol::Balancer]
+        );
+    }
+
+    #[test]
+    // https://etherscan.io/tx/0x1d9a2c8bfcd9f6e133c490d892fe3869bada484160a81966e645616cfc21652a
+    fn balancer_uni_arb2() {
+        let mut inspection =
+            get_trace("0x1d9a2c8bfcd9f6e133c490d892fe3869bada484160a81966e645616cfc21652a");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(ERC20::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Curve::new()),
+                Box::new(Balancer::new()),
+            ],
+            vec![
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let known = inspection.known();
+        let arb = known
+            .iter()
+            .find_map(|action| action.as_ref().arbitrage())
+            .unwrap();
+        assert_eq!(arb.profit, U256::from_dec_str("47597234528640869").unwrap());
+        assert_eq!(arb.token, *WETH);
+        assert_eq!(
+            inspection.protocols,
+            vec![Protocol::Uniswap, Protocol::Balancer]
+        );
     }
 
     #[test]

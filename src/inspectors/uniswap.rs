@@ -31,7 +31,7 @@ impl Inspector for Uniswap {
             if let Some(calltrace) = action.to_call() {
                 let call = calltrace.as_ref();
                 let preflight = self.is_preflight(call);
-                if (call.call_type == CallType::StaticCall && preflight) || self.is_uni_call(call) {
+                if (call.call_type == CallType::StaticCall && preflight) || self.check(call) {
                     let protocol = uniswappy(&call);
                     if !inspection.protocols.contains(&protocol) {
                         inspection.protocols.push(protocol);
@@ -97,7 +97,7 @@ impl Uniswap {
     // There MUST be 1 `swap` call in the traces either to the Pair directly
     // or to the router
     #[allow(clippy::collapsible_if)]
-    fn is_uni_call(&self, call: &TraceCall) -> bool {
+    fn check(&self, call: &TraceCall) -> bool {
         if self.pair.decode::<PairSwap, _>("swap", &call.input).is_ok() || self.is_preflight(call) {
             true
         } else {

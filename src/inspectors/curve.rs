@@ -37,7 +37,7 @@ impl Inspector for Curve {
             let action = &mut inspection.actions[i];
 
             if let Some(calltrace) = action.to_call() {
-                if self.is_curve_call(calltrace.as_ref())
+                if self.check(calltrace.as_ref())
                     && !inspection.protocols.contains(&Protocol::Curve)
                 {
                     inspection.protocols.push(Protocol::Curve);
@@ -75,7 +75,7 @@ impl Curve {
         Ok(this)
     }
 
-    fn is_curve_call(&self, call: &TraceCall) -> bool {
+    fn check(&self, call: &TraceCall) -> bool {
         if !self.pools.is_empty() && self.pools.get(&call.to).is_none() {
             return false;
         }
