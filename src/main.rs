@@ -1,5 +1,5 @@
 use mev_inspect::{
-    inspectors::{Aave, Compound, Curve, Uniswap, ERC20},
+    inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ERC20},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
     BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
@@ -80,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
         // Classify Transfers
         Box::new(ERC20::new()),
         // Classify AMMs
+        Box::new(Balancer::new()),
         Box::new(Uniswap::new()),
         Box::new(Curve::create(provider2.clone()).await?),
         // Classify Liquidations
