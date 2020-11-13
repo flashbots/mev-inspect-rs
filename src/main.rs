@@ -1,5 +1,5 @@
 use mev_inspect::{
-    inspectors::{Aave, Compound, Uniswap, ERC20},
+    inspectors::{Aave, Compound, Curve, Uniswap, ERC20},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
     BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
@@ -75,14 +75,16 @@ async fn main() -> anyhow::Result<()> {
     // Instantiate the thing which will query historical prices
     let prices = HistoricalPrice::new(provider.clone());
 
+    let provider2 = Arc::new(provider.clone());
     let inspectors: Vec<Box<dyn Inspector>> = vec![
         // Classify Transfers
         Box::new(ERC20::new()),
         // Classify AMMs
         Box::new(Uniswap::new()),
+        Box::new(Curve::create(provider2.clone()).await?),
         // Classify Liquidations
         Box::new(Aave::new()),
-        Box::new(Compound::create(Arc::new(provider.clone())).await?),
+        Box::new(Compound::create(provider2).await?),
     ];
 
     let reducers: Vec<Box<dyn Reducer>> = vec![
@@ -136,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
         };
     } else {
         let mut watcher = provider.watch_blocks().await?;
-        while let Some(_) = watcher.next().await {
+        while watcher.next().await.is_some() {
             let block = provider.get_block_number().await?;
             println!("Got block: {}", block.as_u64());
             process_block(block, &provider, &processor, &mut db, &prices).await?;
