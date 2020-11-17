@@ -83,7 +83,7 @@ mod tests {
         let uni1 = addrs[5];
         let uni2 = addrs[6];
 
-        let t1 = Trade::merge(
+        let t1 = Trade::new(
             Transfer {
                 from: usr,
                 to: uni1,
@@ -98,7 +98,7 @@ mod tests {
             },
         );
 
-        let t2 = Trade::merge(
+        let t2 = Trade::new(
             Transfer {
                 from: usr,
                 to: uni2,

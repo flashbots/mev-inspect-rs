@@ -2,10 +2,7 @@ use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, UNISWAP},
     inspectors::find_matching,
     traits::Inspector,
-    types::{
-        actions::{Trade},
-        Classification, Inspection, Protocol, Status,
-    },
+    types::{actions::Trade, Classification, Inspection, Protocol, Status},
 };
 
 use ethers::{abi::Abi, contract::BaseContract};
@@ -41,9 +38,7 @@ impl Inspector for Uniswap {
                 let preflight = self.is_preflight(call);
 
                 // Direct pair transfers can be parsed immediately here
-                if let Ok((_, _, _, bytes)) =
-                    self.pair.decode::<PairSwap, _>("swap", &call.input)
-                {
+                if let Ok((_, _, _, bytes)) = self.pair.decode::<PairSwap, _>("swap", &call.input) {
                     // add the protocol
                     let protocol = uniswappy(&call);
                     if !inspection.protocols.contains(&protocol) {
@@ -136,7 +131,7 @@ fn uniswappy(call: &TraceCall) -> Protocol {
     } else if let Some(protocol) = UNISWAP.get(&call.from) {
         *protocol
     } else {
-        Protocol::UniswapClone
+        Protocol::Uniswappy
     }
 }
 
@@ -381,8 +376,8 @@ pub mod tests {
             trade.t1.amount,
             U256::from_dec_str("28831175112148480867").unwrap()
         );
-        let t2 = known[2].as_ref().transfer().unwrap();
-        let t3 = known[3].as_ref().transfer().unwrap();
+        let _t2 = known[2].as_ref().transfer().unwrap();
+        let _t3 = known[3].as_ref().transfer().unwrap();
     }
 
     mod simple_transfers {
