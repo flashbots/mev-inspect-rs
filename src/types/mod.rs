@@ -25,9 +25,9 @@ pub enum Status {
 pub enum Protocol {
     // Uniswap & Forks
     Uniswap,
+    Uniswappy,
     Sushiswap,
     SakeSwap,
-    UniswapClone,
 
     // Other AMMs
     Curve,

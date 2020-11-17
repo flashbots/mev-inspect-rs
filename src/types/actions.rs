@@ -165,7 +165,7 @@ impl From<Trade> for SpecificAction {
 
 impl Trade {
     /// Creates a new trade made up of 2 matching transfers
-    pub fn merge(t1: Transfer, t2: Transfer) -> Self {
+    pub fn new(t1: Transfer, t2: Transfer) -> Self {
         assert!(t1.from == t2.to && t2.from == t1.to);
         Self { t1, t2 }
     }

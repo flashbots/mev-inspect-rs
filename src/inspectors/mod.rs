@@ -31,61 +31,38 @@ pub use batch::BatchInspector;
 mod compound;
 pub use compound::Compound;
 
-use crate::types::{
-    actions::{Trade, Transfer},
-    Classification,
-};
-use ethers::types::Address;
+use crate::types::{actions::SpecificAction, Classification};
 
-/// Finds the next transfer after an index in the actions array where the `from`
-/// field matches the provided `address`
-pub(crate) fn find_matching_transfer_after<F: Fn(&Transfer) -> bool>(
-    actions: &[Classification],
-    after: usize,
-    check_fn: F,
-) -> Option<(usize, &Transfer)> {
+/// Given an iterator over index,Classification tuples, it will try to cast
+/// each classification to the given specific action (depending on the function given
+/// to `cast`), and then it will check if it satisfies a condition. If yes, it returns
+/// that classification and its index. If `check_all` is set to false, it will return
+/// None if the action we're looking for is not the first known action, e.g.
+/// given a [Deposit, Transfer, Trade], if we're looking for a Trade, `check_all` must
+/// be set to true, otherwise once the Transfer is hit, it will return None
+pub(crate) fn find_matching<'a, I, T, F1, F2>(
+    mut actions: I,
+    cast: F1,
+    check_fn: F2,
+    check_all: bool,
+) -> Option<(usize, &'a T)>
+where
+    I: Iterator<Item = (usize, &'a Classification)>,
+    F1: Fn(&SpecificAction) -> Option<&T>,
+    F2: Fn(&T) -> bool,
+{
     let mut found_known = false;
-    actions
-        .iter()
-        .enumerate()
-        .skip(after + 1)
-        .find_map(|(j, a)| {
-            // Only return `Some` if this is the first known trace we encounter.
-            // e.g. if it was Transfer1 -> Deposit -> Transfer2, it should return
-            // None, whereas Transfer1 -> Transfer2 should return Some.
+    actions.find_map(|(j, a)| {
+        if check_all || !found_known {
             if let Some(action) = a.to_action() {
-                if let Some(t) = action.transfer() {
-                    if !found_known && check_fn(t) {
+                if let Some(t) = cast(&action) {
+                    if check_fn(t) {
                         return Some((j, t));
                     }
                 }
                 found_known = true;
             }
-            None
-        })
-}
-
-/// Finds the next trade after an index in the actions array where the
-/// tokens match
-pub fn find_matching_trade_after(
-    actions: &[Classification],
-    after: usize,
-    address: Address,
-) -> Option<(usize, &Trade)> {
-    let mut found_known = false;
-    actions
-        .iter()
-        .enumerate()
-        .skip(after + 1)
-        .find_map(|(j, a)| {
-            if let Some(action) = a.to_action() {
-                if let Some(t) = action.trade() {
-                    if t.t2.token == address {
-                        return Some((j, t));
-                    }
-                }
-                found_known = true;
-            }
-            None
-        })
+        }
+        None
+    })
 }
