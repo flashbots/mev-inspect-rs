@@ -45,31 +45,33 @@ impl Inspector for Uniswap {
                         inspection.protocols.push(protocol);
                     }
 
-                    // skip flashswaps
+                    // skip flashswaps -- TODO: Get an example tx.
                     if bytes.as_ref().len() > 0 {
                         eprintln!("Flashswaps are not supported. {}", inspection.hash);
                         continue;
                     }
 
-                    // find the first transfer before the swap
-                    // `check_all=true` because there might be unknown calls
-                    // before that
                     let res = find_matching(
-                        // TODO: Is this the correct way to get the element we want?
+                        // Iterate backwards
                         actions.iter().enumerate().rev().skip(actions.len() - i),
+                        // Get a transfer
                         |t| t.transfer(),
+                        // We just want the first transfer, no need to filter for anything
                         |_| true,
+                        // `check_all=true` because there might be other known calls
+                        // before that, due to the Uniswap V2 architecture.
                         true,
                     );
 
                     if let Some((idx_in, transfer_in)) = res {
-                        // Now we gotta find the transfer _out_
-                        // `check_all=true` because there might be unknown calls
-                        // before that
                         let res = find_matching(
                             actions.iter().enumerate().skip(i + 1),
+                            // Get a transfer
                             |t| t.transfer(),
+                            // We just want the first transfer, no need to filter for anything
                             |_| true,
+                            // `check_all = false` because the first known external call
+                            // after the `swap` must be a transfer out
                             false,
                         );
 
@@ -82,13 +84,11 @@ impl Inspector for Uniswap {
                                 },
                                 Vec::new(),
                             );
+                            // if a trade has been made, then we will not try
+                            // to flag this as "checked"
                             has_trade = true;
-
-                            // prune the trade before us
+                            // prune the 2 trades
                             prune.push(idx_in);
-
-                            // prune the trader after us only if there is no need
-                            // for it to be used elsewhere
                             prune.push(idx_out);
                         }
                     }
