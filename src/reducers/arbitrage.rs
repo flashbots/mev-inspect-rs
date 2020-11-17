@@ -1,5 +1,5 @@
 use crate::{
-    inspectors::find_matching_trade_after,
+    inspectors::find_matching,
     types::{actions::Arbitrage, Classification, Inspection},
     Reducer,
 };
@@ -29,7 +29,13 @@ impl Reducer for ArbitrageReducer {
                     return;
                 };
 
-                if let Some((j, trade2)) = find_matching_trade_after(&actions, i, trade.t1.token) {
+                let res = find_matching(
+                    actions.iter().enumerate().skip(i + 1),
+                    |t| t.trade(),
+                    |t| t.t2.token == trade.t1.token,
+                    true,
+                );
+                if let Some((j, trade2)) = res {
                     if trade2.t2.amount > trade.t1.amount {
                         *action = Classification::new(
                             Arbitrage {
