@@ -31,10 +31,7 @@ pub use batch::BatchInspector;
 mod compound;
 pub use compound::Compound;
 
-use crate::types::{
-    actions::{SpecificAction, Trade, Transfer},
-    Classification,
-};
+use crate::types::{actions::SpecificAction, Classification};
 
 pub(crate) fn find_matching<'a, I, T, F1, F2>(
     mut actions: I,

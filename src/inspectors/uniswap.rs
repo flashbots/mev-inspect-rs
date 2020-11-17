@@ -1,7 +1,11 @@
 use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, UNISWAP},
+    inspectors::find_matching,
     traits::Inspector,
-    types::{Classification, Inspection, Protocol, Status},
+    types::{
+        actions::{Trade},
+        Classification, Inspection, Protocol, Status,
+    },
 };
 
 use ethers::{abi::Abi, contract::BaseContract};
@@ -25,21 +29,89 @@ pub struct Uniswap {
 impl Inspector for Uniswap {
     fn inspect(&self, inspection: &mut Inspection) {
         let num_protocols = inspection.protocols.len();
+        let actions = inspection.actions.to_vec();
+
+        let mut prune: Vec<usize> = Vec::new();
+        let mut has_trade = false;
         for i in 0..inspection.actions.len() {
             let action = &mut inspection.actions[i];
 
             if let Some(calltrace) = action.to_call() {
                 let call = calltrace.as_ref();
                 let preflight = self.is_preflight(call);
-                if (call.call_type == CallType::StaticCall && preflight) || self.check(call) {
+
+                // Direct pair transfers can be parsed immediately here
+                if let Ok((_, _, _, bytes)) =
+                    self.pair.decode::<PairSwap, _>("swap", &call.input)
+                {
+                    // add the protocol
                     let protocol = uniswappy(&call);
                     if !inspection.protocols.contains(&protocol) {
                         inspection.protocols.push(protocol);
                     }
-                    *action = Classification::Prune;
+
+                    // skip flashswaps
+                    if bytes.as_ref().len() > 0 {
+                        eprintln!("Flashswaps are not supported. {}", inspection.hash);
+                        continue;
+                    }
+
+                    // find the first transfer before the swap
+                    // `check_all=true` because there might be unknown calls
+                    // before that
+                    let res = find_matching(
+                        // TODO: Is this the correct way to get the element we want?
+                        actions.iter().enumerate().rev().skip(actions.len() - i),
+                        |t| t.transfer(),
+                        |_| true,
+                        true,
+                    );
+
+                    if let Some((idx_in, transfer_in)) = res {
+                        // Now we gotta find the transfer _out_
+                        // `check_all=true` because there might be unknown calls
+                        // before that
+                        let res = find_matching(
+                            actions.iter().enumerate().skip(i + 1),
+                            |t| t.transfer(),
+                            |_| true,
+                            false,
+                        );
+
+                        if let Some((idx_out, transfer_out)) = res {
+                            // change the action to a trade
+                            *action = Classification::new(
+                                Trade {
+                                    t1: transfer_in.clone(),
+                                    t2: transfer_out.clone(),
+                                },
+                                Vec::new(),
+                            );
+                            has_trade = true;
+
+                            // prune the trade before us
+                            prune.push(idx_in);
+
+                            // prune the trader after us only if there is no need
+                            // for it to be used elsewhere
+                            prune.push(idx_out);
+                        }
+                    }
+                } else {
+                    if (call.call_type == CallType::StaticCall && preflight) || self.check(call) {
+                        let protocol = uniswappy(&call);
+                        if !inspection.protocols.contains(&protocol) {
+                            inspection.protocols.push(protocol);
+                        }
+                        *action = Classification::Prune;
+                    }
                 }
             }
         }
+
+        prune
+            .iter()
+            .for_each(|p| inspection.actions[*p] = Classification::Prune);
 
         // If there are less than 2 classified actions (i.e. we didn't execute more
         // than 1 trade attempt, and if there were checked protocols
@@ -51,6 +123,7 @@ impl Inspector for Uniswap {
                 .filter_map(|x| x.to_action())
                 .count()
                 < 2
+            && !has_trade
         {
             inspection.status = Status::Checked;
         }
@@ -98,7 +171,7 @@ impl Uniswap {
     // or to the router
     #[allow(clippy::collapsible_if)]
     fn check(&self, call: &TraceCall) -> bool {
-        if self.pair.decode::<PairSwap, _>("swap", &call.input).is_ok() || self.is_preflight(call) {
+        if self.is_preflight(call) {
             true
         } else {
             for function in self.router.as_ref().functions() {
@@ -196,11 +269,12 @@ pub mod tests {
             uni.inspect(&mut inspection);
 
             let known = inspection.known();
+            dbg!(&known);
             assert!(known[0].as_ref().deposit().is_some());
             let arb = known[1].as_ref().arbitrage().unwrap();
             assert_eq!(arb.profit, U256::from_dec_str("23939671034095067").unwrap());
             assert!(known[2].as_ref().withdrawal().is_some());
-            assert_eq!(inspection.unknown().len(), 14);
+            assert_eq!(inspection.unknown().len(), 10);
         }
 
         // https://etherscan.io/tx/0xddbf97f758bd0958487e18d9e307cd1256b1ad6763cd34090f4c9720ba1b4acc
@@ -212,11 +286,12 @@ pub mod tests {
             uni.inspect(&mut inspection);
 
             let known = inspection.known();
+            dbg!(&known);
             let arb = known[0].as_ref().arbitrage().unwrap();
             assert_eq!(arb.profit, U256::from_dec_str("9196963592118237").unwrap());
 
             assert_eq!(inspection.known().len(), 1);
-            assert_eq!(inspection.unknown().len(), 4);
+            assert_eq!(inspection.unknown().len(), 2);
         }
     }
 
@@ -284,6 +359,30 @@ pub mod tests {
             inspection.protocols.sort();
             assert_eq!(inspection.protocols, *protocols);
         }
+    }
+
+    #[test]
+    // https://etherscan.io/tx/0xb9d415abb21007d6d947949113b91b2bf33c82d291d510e23a08e64ce80bf5bf
+    fn bot_trade() {
+        let mut inspection = read_trace("bot_trade.json");
+        let uni = MyInspector::new();
+        uni.inspect(&mut inspection);
+
+        let known = inspection.known();
+        dbg!(&known);
+        assert_eq!(known.len(), 4);
+        let t1 = known[0].as_ref().transfer().unwrap();
+        assert_eq!(
+            t1.amount,
+            U256::from_dec_str("155025667786800022191").unwrap()
+        );
+        let trade = known[1].as_ref().trade().unwrap();
+        assert_eq!(
+            trade.t1.amount,
+            U256::from_dec_str("28831175112148480867").unwrap()
+        );
+        let t2 = known[2].as_ref().transfer().unwrap();
+        let t3 = known[3].as_ref().transfer().unwrap();
     }
 
     mod simple_transfers {
@@ -364,7 +463,6 @@ pub mod tests {
             let trade = known[0].as_ref().trade().unwrap();
             assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "YFI");
             assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "WETH");
-
             assert_eq!(inspection.known().len(), 1);
             assert_eq!(inspection.unknown().len(), 2);
         }
