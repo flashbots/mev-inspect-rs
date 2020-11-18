@@ -116,7 +116,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             liquidation.profit,
-            U256::from_dec_str("11050220339336343871").unwrap()
+            U256::from_dec_str("11050220339336811520").unwrap()
         );
 
         assert_eq!(
@@ -127,7 +127,7 @@ mod tests {
             vec![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
         );
 
-        assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "ETH");
+        assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "WETH");
         assert_eq!(
             ADDRESSBOOK.get(&liquidation.as_ref().sent_token).unwrap(),
             "YFI"
@@ -244,10 +244,11 @@ mod tests {
 
         let inspector = BatchInspector::new(
             vec![
-                Box::new(ZeroEx::new()),
                 Box::new(ERC20::new()),
+                Box::new(Aave::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Balancer::new()),
+                Box::new(ZeroEx::new()),
                 Box::new(Curve::new()),
             ],
             vec![
@@ -273,12 +274,12 @@ mod tests {
 
         let inspector = BatchInspector::new(
             vec![
-                Box::new(ZeroEx::new()),
                 Box::new(ERC20::new()),
+                Box::new(Aave::new()),
+                Box::new(ZeroEx::new()),
                 Box::new(Balancer::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Curve::new()),
-                Box::new(Aave::new()),
             ],
             vec![
                 Box::new(LiquidationReducer::new()),
@@ -291,8 +292,18 @@ mod tests {
         inspection.prune();
 
         let known = inspection.known();
-        dbg!(&known);
         assert_eq!(inspection.status, Status::Success);
-        assert_eq!(inspection.protocols, vec![Protocol::Uniswap, Protocol::Aave])
+        assert_eq!(
+            inspection.protocols,
+            vec![Protocol::Aave, Protocol::Uniswap]
+        );
+        let liquidation = known
+            .iter()
+            .find_map(|action| action.as_ref().profitable_liquidation())
+            .unwrap();
+        assert_eq!(
+            liquidation.profit,
+            U256::from_dec_str("18789801420638046861").unwrap()
+        );
     }
 }

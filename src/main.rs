@@ -110,8 +110,8 @@ async fn main() -> anyhow::Result<()> {
                 if let Some(inspection) = processor.inspect_one(traces) {
                     let evaluation = Evaluation::new(inspection, &provider, &prices).await?;
                     println!("Found: {:?}", evaluation.as_ref().hash);
-                    println!("Revenue: {:?}", evaluation.profit);
-                    println!("Cost: {:?}", evaluation.gas_used * evaluation.gas_price);
+                    println!("Revenue: {:?} WEI", evaluation.profit);
+                    println!("Cost: {:?} WEI", evaluation.gas_used * evaluation.gas_price);
                     println!("Actions: {:?}", evaluation.actions);
                     println!("Protocols: {:?}", evaluation.inspection.protocols);
 

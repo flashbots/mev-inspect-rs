@@ -8,7 +8,7 @@ pub trait Reducer {
 }
 
 /// Trait for defining an inspector for a specific DeFi protocol
-pub trait Inspector {
+pub trait Inspector: core::fmt::Debug {
     /// Classifies an inspection's actions
     fn inspect(&self, inspection: &mut Inspection);
 }
