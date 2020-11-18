@@ -79,6 +79,9 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set
 });
 
+pub static DYDX: Lazy<Address> =
+    Lazy::new(|| parse_address("0x1e0447b19bb6ecfdae1e4ae1694b0c3659614e4e"));
+
 pub static BALANCER_PROXY: Lazy<Address> =
     Lazy::new(|| parse_address("0x3E66B66Fd1d0b02fDa6C811Da9E0547970DB2f21"));
 

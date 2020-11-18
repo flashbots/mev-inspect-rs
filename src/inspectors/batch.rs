@@ -295,7 +295,7 @@ mod tests {
         assert_eq!(inspection.status, Status::Success);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Aave, Protocol::Uniswap]
+            vec![Protocol::Aave, Protocol::DyDx, Protocol::Uniswap]
         );
         let liquidation = known
             .iter()
