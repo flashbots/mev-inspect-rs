@@ -8,10 +8,11 @@ use ethers::{
     providers::Middleware,
     types::{TxHash, U256},
 };
+use std::collections::HashSet;
 
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
 pub enum ActionType {
     Liquidation,
     Arbitrage,
@@ -27,7 +28,7 @@ pub struct Evaluation {
     /// The gas price used in this transaction
     pub gas_price: U256,
     /// The actions involved
-    pub actions: Vec<ActionType>,
+    pub actions: HashSet<ActionType>,
     /// The money made by this transfer
     pub profit: U256,
 }
@@ -65,14 +66,14 @@ impl Evaluation {
         // aggressively
         // TODO: If an Inspection is CHECKED and contains >1 trading protocol,
         // then probably this is an Arbitrage?
-        let mut actions = Vec::new();
+        let mut actions = HashSet::new();
         let mut profit = U256::zero();
         for action in &inspection.actions {
             match action {
                 Classification::Known(action) => match action.as_ref() {
                     SpecificAction::Arbitrage(arb) => {
                         if arb.profit > 0.into() {
-                            actions.push(ActionType::Arbitrage);
+                            actions.insert(ActionType::Arbitrage);
                             profit += prices
                                 .quote(arb.token, arb.profit, inspection.block_number)
                                 .await
@@ -108,16 +109,21 @@ impl Evaluation {
                             );
                         }
 
-                        actions.push(ActionType::Liquidation)
+                        actions.insert(ActionType::Liquidation);
+                    }
+                    SpecificAction::LiquidationCheck => {
+                        actions.insert(ActionType::Liquidation);
                     }
                     SpecificAction::ProfitableLiquidation(liq) => {
-                        actions.push(ActionType::Liquidation);
+                        actions.insert(ActionType::Liquidation);
                         profit += prices
                             .quote(liq.token, liq.profit, inspection.block_number)
                             .await
                             .map_err(EvalError::Contract)?;
                     }
-                    SpecificAction::Trade(_) => actions.push(ActionType::Trade),
+                    SpecificAction::Trade(_) => {
+                        actions.insert(ActionType::Trade);
+                    }
                     _ => (),
                 },
                 _ => (),

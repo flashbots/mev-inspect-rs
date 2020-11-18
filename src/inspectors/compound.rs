@@ -2,7 +2,10 @@ use crate::{
     actions_after,
     addresses::{CETH, COMPTROLLER, COMP_ORACLE, WETH},
     traits::Inspector,
-    types::{actions::Liquidation, Classification, Inspection, Protocol, Status},
+    types::{
+        actions::{Liquidation, SpecificAction},
+        Classification, Inspection, Protocol, Status,
+    },
 };
 use ethers::{
     abi::{Abi, FunctionExt},
@@ -63,6 +66,8 @@ impl Inspector for Compound {
                     found = true;
                 }
             } else if self.is_preflight(&action) && !found {
+                // insert an empty liquidation for the actions upstream
+                *action = Classification::new(SpecificAction::LiquidationCheck, Vec::new());
                 // a pre-flight is only marked as "Checked" if a successful
                 // liquidation was not already found before it
                 inspection.status = Status::Checked;

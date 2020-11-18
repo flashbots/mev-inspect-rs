@@ -15,10 +15,15 @@ impl<'a> MevDB<'a> {
     pub async fn connect(
         host: &str,
         user: &str,
+        password: Option<String>,
         table_name: &'a str,
     ) -> Result<MevDB<'a>, DbError> {
-        let (client, connection) =
-            tokio_postgres::connect(&format!("host={} user={}", host, user), NoTls).await?;
+        let mut auth = format!("host={} user={}", host, user);
+        if let Some(password) = password {
+            auth = format!("{} password={}", auth, password);
+        }
+
+        let (client, connection) = tokio_postgres::connect(&auth, NoTls).await?;
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {
@@ -135,8 +140,8 @@ pub enum DbError {
 }
 
 // helpers
-fn vec_str<T: std::fmt::Debug>(t: &[T]) -> Vec<String> {
-    t.iter()
+fn vec_str<T: std::fmt::Debug, I: IntoIterator<Item = T>>(t: I) -> Vec<String> {
+    t.into_iter()
         .map(|i| format!("{:?}", i).to_lowercase())
         .collect::<Vec<_>>()
 }

@@ -19,6 +19,8 @@ pub enum SpecificAction {
     ProfitableLiquidation(ProfitableLiquidation),
 
     Unclassified(Bytes),
+
+    LiquidationCheck,
 }
 
 impl SpecificAction {
@@ -197,7 +199,7 @@ impl fmt::Debug for Arbitrage {
     }
 }
 
-#[derive(Clone, PartialOrd, PartialEq)]
+#[derive(Default, Clone, PartialOrd, PartialEq)]
 pub struct Liquidation {
     pub sent_token: Address,
     pub sent_amount: U256,

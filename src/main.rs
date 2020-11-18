@@ -34,6 +34,8 @@ struct Opts {
     db_url: String,
     #[options(default = "postgres", help = "the user of the database")]
     db_user: String,
+    #[options(help = "the password of the database")]
+    db_pass: Option<String>,
     #[options(default = "mev_inspections", help = "the table of the database")]
     db_table: String,
 
@@ -96,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
     ];
     let processor = BatchInspector::new(inspectors, reducers);
 
-    let mut db = MevDB::connect(&opts.db_url, &opts.db_user, &opts.db_table).await?;
+    let mut db = MevDB::connect(&opts.db_url, &opts.db_user, opts.db_pass, &opts.db_table).await?;
     db.create().await?;
     if opts.reset {
         db.clear().await?;
@@ -114,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
                     println!("Cost: {:?} WEI", evaluation.gas_used * evaluation.gas_price);
                     println!("Actions: {:?}", evaluation.actions);
                     println!("Protocols: {:?}", evaluation.inspection.protocols);
+                    println!("Status: {:?}", evaluation.inspection.status);
 
                     if !db.exists(opts.tx).await? {
                         db.insert(&evaluation).await?;
