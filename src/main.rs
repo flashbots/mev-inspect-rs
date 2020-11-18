@@ -96,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
     let processor = BatchInspector::new(inspectors, reducers);
 
     let mut db = MevDB::connect(&opts.db_url, &opts.db_user, &opts.db_table).await?;
+    db.create().await?;
     if opts.reset {
         db.clear().await?;
         db.create().await?;
