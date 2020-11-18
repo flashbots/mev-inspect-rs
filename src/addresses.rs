@@ -67,10 +67,13 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     map
 });
 
+// Addresses which should be ignored when used as the target of a transaction
 pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     let mut set = HashSet::new();
     // 1inch
     set.insert(parse_address("0x11111254369792b2ca5d084ab5eea397ca8fa48b"));
+    // paraswap
+    set.insert(parse_address("0x86969d29F5fd327E1009bA66072BE22DB6017cC6"));
     set
 });
 
