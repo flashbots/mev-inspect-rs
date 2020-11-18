@@ -265,4 +265,34 @@ mod tests {
         assert_eq!(inspection.status, Status::Reverted);
         assert_eq!(inspection.protocols, vec![Protocol::Uniswap])
     }
+
+    #[test]
+    // http://etherscan.io/tx/0x0e0e7c690589d9b94c3fbc4bae8abb4c5cac5c965abbb5bf1533e9f546b10b92
+    fn dydx_aave_liquidation() {
+        let mut inspection = read_trace("dydx_loan.json");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(ZeroEx::new()),
+                Box::new(ERC20::new()),
+                Box::new(Balancer::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Curve::new()),
+                Box::new(Aave::new()),
+            ],
+            vec![
+                Box::new(LiquidationReducer::new()),
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let known = inspection.known();
+        dbg!(&known);
+        assert_eq!(inspection.status, Status::Success);
+        assert_eq!(inspection.protocols, vec![Protocol::Uniswap, Protocol::Aave])
+    }
 }
