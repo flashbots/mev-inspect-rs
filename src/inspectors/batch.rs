@@ -72,10 +72,10 @@ mod tests {
     use super::*;
     use crate::{
         addresses::{ADDRESSBOOK, WETH},
-        inspectors::{Aave, Balancer, Curve, Uniswap, ERC20},
-        reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
+        inspectors::*,
+        reducers::*,
         test_helpers::*,
-        types::Protocol,
+        types::{Protocol, Status},
     };
     use ethers::types::U256;
 
@@ -235,5 +235,34 @@ mod tests {
             inspection.protocols,
             vec![Protocol::Sushiswap, Protocol::Curve]
         );
+    }
+
+    #[test]
+    // https://etherscan.io/tx/0x1c85df1fa4c2e9fe7acc7bf204681aa0072b5df05e06bbc8e593777c0dfa5c1c
+    fn bot_selfdestruct() {
+        let mut inspection = read_trace("bot_selfdestruct.json");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(ZeroEx::new()),
+                Box::new(ERC20::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Balancer::new()),
+                Box::new(Curve::new()),
+            ],
+            vec![
+                Box::new(LiquidationReducer::new()),
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let known = inspection.known();
+        dbg!(&known);
+        assert_eq!(inspection.status, Status::Reverted);
+        assert_eq!(inspection.protocols, vec![Protocol::Uniswap])
     }
 }

@@ -67,6 +67,10 @@ impl Inspector for Balancer {
 
                 match (t1, t2) {
                     (Some((j, t1)), Some((k, t2))) => {
+                        if t1.from != t2.to {
+                            continue;
+                        }
+
                         *action =
                             Classification::new(Trade::new(t1.clone(), t2.clone()), Vec::new());
                         prune.push(j);

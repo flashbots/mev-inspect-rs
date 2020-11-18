@@ -171,6 +171,7 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
             "0x5dbcf33d8c2e976c6b560249878e6f1491bca25c",
             "yyDAI+yUSDC+yUSDT+yTUSD",
         ),
+        ("0x0000000000b3f879cb30fe243b4dfee438691c04", "GST2"),
     ]
     .iter()
     .map(|(addr, token)| (parse_address(addr), token.to_string()))
