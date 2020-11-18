@@ -31,6 +31,9 @@ pub use batch::BatchInspector;
 mod compound;
 pub use compound::Compound;
 
+mod zeroex;
+pub use zeroex::ZeroEx;
+
 use crate::types::{actions::SpecificAction, Classification};
 
 /// Given an iterator over index,Classification tuples, it will try to cast

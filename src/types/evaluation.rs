@@ -15,6 +15,7 @@ use thiserror::Error;
 pub enum ActionType {
     Liquidation,
     Arbitrage,
+    Trade,
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +117,7 @@ impl Evaluation {
                             .await
                             .map_err(EvalError::Contract)?;
                     }
+                    SpecificAction::Trade(_) => actions.push(ActionType::Trade),
                     _ => (),
                 },
                 _ => (),

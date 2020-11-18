@@ -1,5 +1,5 @@
 use crate::{
-    addresses::{AAVE_LENDING_POOL_CORE, UNISWAP},
+    addresses::{AAVE_LENDING_POOL_CORE, PROTOCOLS},
     inspectors::find_matching,
     traits::Inspector,
     types::{actions::Trade, Classification, Inspection, Protocol, Status},
@@ -47,7 +47,7 @@ impl Inspector for Uniswap {
 
                     // skip flashswaps -- TODO: Get an example tx.
                     if bytes.as_ref().len() > 0 {
-                        eprintln!("Flashswaps are not supported. {}", inspection.hash);
+                        eprintln!("Flashswaps are not supported. {:?}", inspection.hash);
                         continue;
                     }
 
@@ -126,9 +126,9 @@ impl Inspector for Uniswap {
 }
 
 fn uniswappy(call: &TraceCall) -> Protocol {
-    if let Some(protocol) = UNISWAP.get(&call.to) {
+    if let Some(protocol) = PROTOCOLS.get(&call.to) {
         *protocol
-    } else if let Some(protocol) = UNISWAP.get(&call.from) {
+    } else if let Some(protocol) = PROTOCOLS.get(&call.from) {
         *protocol
     } else {
         Protocol::Uniswappy

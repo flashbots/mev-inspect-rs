@@ -1,5 +1,5 @@
 use mev_inspect::{
-    inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ERC20},
+    inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
     BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
@@ -78,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
     let provider2 = Arc::new(provider.clone());
     let inspectors: Vec<Box<dyn Inspector>> = vec![
         // Classify Transfers
+        Box::new(ZeroEx::new()),
         Box::new(ERC20::new()),
         // Classify AMMs
         Box::new(Balancer::new()),
