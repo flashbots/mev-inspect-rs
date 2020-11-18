@@ -1,5 +1,5 @@
 use crate::{
-    addresses::ETH,
+    addresses::{ETH, WETH},
     inspectors::find_matching,
     types::{
         actions::{ProfitableLiquidation, Transfer},
@@ -69,7 +69,11 @@ impl Reducer for LiquidationReducer {
 
                     if let Some((_, paid)) = res {
                         // prune.push(idx2);
-                        if received.amount > paid.t1.amount {
+                        let tokens_match = (received.token == paid.t1.token)
+                            || ((received.token == *ETH && paid.t1.token == *WETH)
+                                || (received.token == *WETH && paid.t1.token == *ETH));
+                        if received.amount > paid.t1.amount && tokens_match {
+                            dbg!(&liq, &received, &paid);
                             liq.received_amount = received.amount;
                             let profitable_liq = ProfitableLiquidation {
                                 token: paid.t1.token,

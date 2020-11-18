@@ -110,6 +110,8 @@ mod tests {
 
         let known = inspection.known();
 
+        dbg!(&known);
+
         let liquidation = known
             .iter()
             .find_map(|action| action.as_ref().profitable_liquidation())
@@ -305,5 +307,44 @@ mod tests {
             liquidation.profit,
             U256::from_dec_str("18789801420638046861").unwrap()
         );
+    }
+
+    #[test]
+    // http://etherscan.io/tx/0x97afae49a25201dbb34502d36a7903b51754362ceb231ff775c07db540f4a3d6
+    // here the trader keeps the received asset (different than the one he used to repay)
+    fn liquidation1() {
+        let mut inspection = read_trace("liquidation_1.json");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(ERC20::new()),
+                Box::new(Aave::new()),
+                Box::new(ZeroEx::new()),
+                Box::new(Balancer::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Curve::new()),
+            ],
+            vec![
+                Box::new(LiquidationReducer::new()),
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let known = inspection.known();
+        assert_eq!(inspection.status, Status::Success);
+        assert_eq!(
+            inspection.protocols,
+            vec![Protocol::Aave, Protocol::Uniswappy]
+        );
+        let liquidation = known
+            .iter()
+            .find_map(|action| action.as_ref().liquidation())
+            .unwrap();
+        assert_eq!(ADDRESSBOOK.get(&liquidation.sent_token).unwrap(), "BAT");
+        assert_eq!(ADDRESSBOOK.get(&liquidation.received_token).unwrap(), "DAI");
     }
 }
