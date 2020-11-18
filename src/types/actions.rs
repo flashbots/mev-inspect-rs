@@ -166,7 +166,10 @@ impl From<Trade> for SpecificAction {
 impl Trade {
     /// Creates a new trade made up of 2 matching transfers
     pub fn new(t1: Transfer, t2: Transfer) -> Self {
-        assert!(t1.from == t2.to && t2.from == t1.to);
+        assert!(
+            t1.from == t2.to && t2.from == t1.to,
+            "Found mismatched trade"
+        );
         Self { t1, t2 }
     }
 }

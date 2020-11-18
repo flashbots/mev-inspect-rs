@@ -34,16 +34,11 @@ impl Reducer for TradeReducer {
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
                     |t| t.transfer(),
-                    |t| t.from == transfer.to,
+                    |t| t.to == transfer.from && t.from == transfer.to,
                     false,
                 );
-                if let Some((j, transfer2)) = res {
-                    // Hack to filter out weird dups
-                    if transfer.token == transfer2.token {
-                        *action = Classification::Prune;
-                        return;
-                    }
 
+                if let Some((j, transfer2)) = res {
                     *action = Classification::new(
                         Trade {
                             t1: transfer.clone(),
@@ -56,7 +51,7 @@ impl Reducer for TradeReducer {
                     let res = find_matching(
                         actions.iter().enumerate().skip(j + 1),
                         |t| t.transfer(),
-                        |t| t.from == transfer2.to,
+                        |t| t.to == transfer2.from && t.from == transfer2.to,
                         false,
                     );
                     if res.is_none() {

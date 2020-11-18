@@ -23,8 +23,8 @@ fn insert_many<T: Clone>(
     map
 }
 
-// Uniswap-like addresses
-pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
+// Protocol Addrs
+pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     let map = HashMap::new();
     let map = insert_many(
         map,
@@ -34,6 +34,7 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
             "0x2fdbadf3c4d5a8666bc06645b8358ab803996e28",
             "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
             "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc",
+            "0xDcD6011f4C6B80e470D9487f5871a0Cba7C93f48", // 0x: UniswapV2Bridge
         ],
         Protocol::Uniswap,
     );
@@ -55,6 +56,12 @@ pub static UNISWAP: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
         map,
         &["0x89ba27e73c929ebef87c9ff4b43052012ea838d9"],
         Protocol::SakeSwap,
+    );
+
+    let map = insert_many(
+        map,
+        &["0xfe01821Ca163844203220cd08E4f2B2FB43aE4E4"], // 0x: BalancerBridge
+        Protocol::Balancer,
     );
 
     map
@@ -97,10 +104,31 @@ pub static ETH: Lazy<Address> =
 pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
     // TODO: Read these from a CSV?
     let map: HashMap<Address, String> = [
+        // 0x Exchange Proxies
+        (
+            "0xdef1c0ded9bec7f1a1670819833240f027b25eff",
+            "0x: ExchangeProxy",
+        ),
+        (
+            "0xfe01821Ca163844203220cd08E4f2B2FB43aE4E4",
+            "0x: BalancerBridge",
+        ),
+        (
+            "0xDcD6011f4C6B80e470D9487f5871a0Cba7C93f48",
+            "0x: UniswapV2Bridge",
+        ),
+        (
+            "0x761C446DFC9f7826374ABDeCc79F992e7F17330b",
+            "0x: TranformERC20",
+        ),
         // Contracts
         (
             "0x2fdbadf3c4d5a8666bc06645b8358ab803996e28",
             "UniswapPair YFI 8",
+        ),
+        (
+            "0x3dA1313aE46132A397D90d95B1424A9A7e3e0fCE",
+            "UniswapPair CRV 8",
         ),
         (
             "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
@@ -138,6 +166,7 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
         ("0x0bc529c00c6401aef6d220be8c6ea1667f6ad93e", "YFI"),
         ("0xe41d2489571d322189246dafa5ebde1f4699f498", "ZRX"),
         ("0x0d8775f648430679a709e98d2b0cb6250d2887ef", "BAT"),
+        ("0xd533a949740bb3306d119cc777fa900ba034cd52", "CRV"),
         (
             "0x5dbcf33d8c2e976c6b560249878e6f1491bca25c",
             "yyDAI+yUSDC+yUSDT+yTUSD",

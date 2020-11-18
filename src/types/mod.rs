@@ -37,6 +37,9 @@ pub enum Protocol {
     Aave,
     Compound,
 
+    // Aggregators
+    ZeroEx,
+
     // Misc.
     Flashloan,
 }
