@@ -74,6 +74,8 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0x11111254369792b2ca5d084ab5eea397ca8fa48b"));
     // paraswap
     set.insert(parse_address("0x86969d29F5fd327E1009bA66072BE22DB6017cC6"));
+    // furucombo
+    set.insert(parse_address("0x57805e5a227937bac2b0fdacaa30413ddac6b8e1"));
     set
 });
 
