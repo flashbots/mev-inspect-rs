@@ -116,7 +116,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             liquidation.profit,
-            U256::from_dec_str("11050220339336343871").unwrap()
+            U256::from_dec_str("11050220339336811520").unwrap()
         );
 
         assert_eq!(
@@ -127,7 +127,7 @@ mod tests {
             vec![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
         );
 
-        assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "ETH");
+        assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "WETH");
         assert_eq!(
             ADDRESSBOOK.get(&liquidation.as_ref().sent_token).unwrap(),
             "YFI"
@@ -244,10 +244,11 @@ mod tests {
 
         let inspector = BatchInspector::new(
             vec![
-                Box::new(ZeroEx::new()),
                 Box::new(ERC20::new()),
+                Box::new(Aave::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Balancer::new()),
+                Box::new(ZeroEx::new()),
                 Box::new(Curve::new()),
             ],
             vec![
@@ -264,5 +265,45 @@ mod tests {
         dbg!(&known);
         assert_eq!(inspection.status, Status::Reverted);
         assert_eq!(inspection.protocols, vec![Protocol::Uniswap])
+    }
+
+    #[test]
+    // http://etherscan.io/tx/0x0e0e7c690589d9b94c3fbc4bae8abb4c5cac5c965abbb5bf1533e9f546b10b92
+    fn dydx_aave_liquidation() {
+        let mut inspection = read_trace("dydx_loan.json");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(ERC20::new()),
+                Box::new(Aave::new()),
+                Box::new(ZeroEx::new()),
+                Box::new(Balancer::new()),
+                Box::new(Uniswap::new()),
+                Box::new(Curve::new()),
+            ],
+            vec![
+                Box::new(LiquidationReducer::new()),
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let known = inspection.known();
+        assert_eq!(inspection.status, Status::Success);
+        assert_eq!(
+            inspection.protocols,
+            vec![Protocol::Aave, Protocol::DyDx, Protocol::Uniswap]
+        );
+        let liquidation = known
+            .iter()
+            .find_map(|action| action.as_ref().profitable_liquidation())
+            .unwrap();
+        assert_eq!(
+            liquidation.profit,
+            U256::from_dec_str("18789801420638046861").unwrap()
+        );
     }
 }

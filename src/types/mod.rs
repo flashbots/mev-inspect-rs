@@ -42,4 +42,5 @@ pub enum Protocol {
 
     // Misc.
     Flashloan,
+    DyDx,
 }

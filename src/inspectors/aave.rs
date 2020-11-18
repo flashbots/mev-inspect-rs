@@ -11,6 +11,7 @@ use ethers::{
 
 type LiquidationCall = (Address, Address, Address, U256, bool);
 
+#[derive(Clone, Debug)]
 pub struct Aave {
     pub pool: BaseContract,
 }
