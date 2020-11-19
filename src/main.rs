@@ -20,6 +20,9 @@ struct Opts {
     #[options(help = "clear and re-build the database")]
     reset: bool,
 
+    #[options(help = "do not skip blocks which already exist")]
+    overwrite: bool,
+
     #[options(
         default = "http://localhost:8545",
         help = "The tracing / archival node's URL"
@@ -141,17 +144,25 @@ async fn main() -> anyhow::Result<()> {
                     eprintln!("No actions found for tx {:?}", opts.tx);
                 }
             }
-            Command::Blocks(opts) => {
+            Command::Blocks(inner) => {
                 let t1 = std::time::Instant::now();
-                for block in opts.from..opts.to {
+                for block in inner.from..inner.to {
                     // TODO: Can we do the block processing in parallel? Theoretically
                     // it should be possible
-                    process_block(block, &provider, &processor, &mut db, &prices).await?;
+                    process_block(
+                        block,
+                        &provider,
+                        &processor,
+                        &mut db,
+                        &prices,
+                        opts.overwrite,
+                    )
+                    .await?;
                 }
 
                 println!(
                     "Processed {} blocks in {:?}",
-                    opts.to - opts.from,
+                    inner.to - inner.from,
                     std::time::Instant::now().duration_since(t1)
                 );
             }
@@ -161,7 +172,15 @@ async fn main() -> anyhow::Result<()> {
         while watcher.next().await.is_some() {
             let block = provider.get_block_number().await?;
             println!("Got block: {}", block.as_u64());
-            process_block(block.as_u64(), &provider, &processor, &mut db, &prices).await?;
+            process_block(
+                block.as_u64(),
+                &provider,
+                &processor,
+                &mut db,
+                &prices,
+                opts.overwrite,
+            )
+            .await?;
         }
     }
 
@@ -174,11 +193,12 @@ async fn process_block<M: Middleware + 'static>(
     processor: &BatchInspector,
     db: &mut MevDB<'_>,
     prices: &HistoricalPrice<M>,
+    overwrite: bool,
 ) -> anyhow::Result<()> {
     let block_number = block_number.into();
 
     // short-cut if it exists
-    if db.block_exists(block_number).await? {
+    if !overwrite && db.block_exists(block_number).await? {
         return Ok(());
     }
 
@@ -224,7 +244,7 @@ async fn process_block<M: Middleware + 'static>(
     });
     for evaluation in futures::future::join_all(eval_futs).await {
         if let Ok(evaluation) = evaluation {
-            if !db.exists(evaluation.inspection.hash).await? {
+            if overwrite || !db.exists(evaluation.inspection.hash).await? {
                 db.insert(&evaluation).await?;
             }
         }
