@@ -7,7 +7,7 @@ use mev_inspect::{
 
 use ethers::{
     providers::{Middleware, Provider, StreamExt},
-    types::{BlockNumber, TxHash, U256},
+    types::{TxHash, U256},
 };
 
 use gumdrop::Options;
@@ -161,23 +161,29 @@ async fn main() -> anyhow::Result<()> {
         while watcher.next().await.is_some() {
             let block = provider.get_block_number().await?;
             println!("Got block: {}", block.as_u64());
-            process_block(block, &provider, &processor, &mut db, &prices).await?;
+            process_block(block.as_u64(), &provider, &processor, &mut db, &prices).await?;
         }
     }
 
     Ok(())
 }
 
-async fn process_block<T: Send + Sync + Into<BlockNumber>, M: Middleware + 'static>(
-    block_number: T,
+async fn process_block<M: Middleware + 'static>(
+    block_number: u64,
     provider: &M,
     processor: &BatchInspector,
     db: &mut MevDB<'_>,
     prices: &HistoricalPrice<M>,
 ) -> anyhow::Result<()> {
     let block_number = block_number.into();
+
+    // short-cut if it exists
+    if db.block_exists(block_number).await? {
+        return Ok(());
+    }
+
     // get all the traces
-    let traces = provider.trace_block(block_number).await?;
+    let traces = provider.trace_block(block_number.into()).await?;
     // get all the block txs
     let block = provider
         .get_block_with_txs(block_number)

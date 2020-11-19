@@ -122,6 +122,26 @@ impl<'a> MevDB<'a> {
         }
     }
 
+    /// Checks if the provided block has been inspected
+    pub async fn block_exists(&mut self, block: u64) -> Result<bool, DbError> {
+        let rows = self
+            .client
+            .query(
+                format!(
+                    "SELECT block_number FROM {} WHERE block_number = $1 LIMIT 1;",
+                    self.table_name
+                )
+                .as_str(),
+                &[&Decimal::from_u64(block).ok_or(DbError::InvalidDecimal)?],
+            )
+            .await?;
+        if rows.get(0).is_some() {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub async fn clear(&mut self) -> Result<(), DbError> {
         self.client
             .batch_execute(&format!("DROP TABLE {}", self.table_name))
@@ -134,6 +154,9 @@ impl<'a> MevDB<'a> {
 pub enum DbError {
     #[error(transparent)]
     Decimal(#[from] rust_decimal::Error),
+
+    #[error("could not convert u64 to decimal")]
+    InvalidDecimal,
 
     #[error(transparent)]
     TokioPostGres(#[from] tokio_postgres::Error),
@@ -156,10 +179,11 @@ mod tests {
     use crate::types::evaluation::ActionType;
     use crate::types::Inspection;
     use ethers::types::{Address, TxHash};
+    use std::collections::HashSet;
 
     #[tokio::test]
     async fn insert_eval() {
-        let mut client = MevDB::connect("localhost", "postgres", "test_table")
+        let mut client = MevDB::connect("localhost", "postgres", None, "test_table")
             .await
             .unwrap();
         client.clear().await.unwrap();
@@ -175,16 +199,25 @@ mod tests {
             hash: TxHash::zero(),
             block_number: 9,
         };
+        let actions = [ActionType::Liquidation, ActionType::Arbitrage]
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
         let evaluation = Evaluation {
             inspection,
             gas_used: 21000.into(),
             gas_price: (100e9 as u64).into(),
-            actions: vec![ActionType::Liquidation, ActionType::Arbitrage],
+            actions,
             profit: (1e18 as u64).into(),
         };
 
         client.insert(&evaluation).await.unwrap();
 
         assert!(client.exists(evaluation.as_ref().hash).await.unwrap());
+        assert!(client
+            .block_exists(evaluation.as_ref().block_number)
+            .await
+            .unwrap());
+        assert!(!client.block_exists(8).await.unwrap());
     }
 }
