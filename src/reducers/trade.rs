@@ -34,17 +34,24 @@ impl Reducer for TradeReducer {
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
                     |t| t.transfer(),
-                    |t| t.to == transfer.from && t.from == transfer.to,
-                    false,
+                    |t| t.to == transfer.from && t.from == transfer.to && t.token != transfer.token,
+                    true,
                 );
 
                 if let Some((j, transfer2)) = res {
+                    // only match transfers which were on the same rank of the trace
+                    // trades across multiple trace levels are handled by their individual
+                    // inspectors
+                    if actions[i].trace_address().len() != actions[j].trace_address().len() {
+                        return;
+                    }
+
                     *action = Classification::new(
                         Trade {
                             t1: transfer.clone(),
                             t2: transfer2.clone(),
                         },
-                        Vec::new(),
+                        actions[i].trace_address(),
                     );
 
                     // If there is no follow-up transfer that uses `transfer2`, prune it:

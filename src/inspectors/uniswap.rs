@@ -92,14 +92,13 @@ impl Inspector for Uniswap {
                             prune.push(idx_out);
                         }
                     }
-                } else {
-                    if (call.call_type == CallType::StaticCall && preflight) || self.check(call) {
-                        let protocol = uniswappy(&call);
-                        if !inspection.protocols.contains(&protocol) {
-                            inspection.protocols.push(protocol);
-                        }
-                        *action = Classification::Prune;
+                } else if (call.call_type == CallType::StaticCall && preflight) || self.check(call)
+                {
+                    let protocol = uniswappy(&call);
+                    if !inspection.protocols.contains(&protocol) {
+                        inspection.protocols.push(protocol);
                     }
+                    *action = Classification::Prune;
                 }
             }
         }

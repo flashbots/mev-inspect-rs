@@ -67,7 +67,7 @@ impl Inspector for Balancer {
 
                 match (t1, t2) {
                     (Some((j, t1)), Some((k, t2))) => {
-                        if t1.from != t2.to {
+                        if t1.from != t2.to || t2.from != t1.to {
                             continue;
                         }
 
@@ -118,6 +118,7 @@ mod tests {
     use super::*;
     use crate::test_helpers::*;
     use crate::{
+        addresses::ADDRESSBOOK,
         inspectors::ERC20,
         reducers::{ArbitrageReducer, TradeReducer},
         types::Inspection,
@@ -171,5 +172,33 @@ mod tests {
         );
         let _t2 = known[2].as_ref().transfer().unwrap();
         let _t3 = known[3].as_ref().transfer().unwrap();
+    }
+
+    #[test]
+    fn comp_collect_trade() {
+        let mut inspection = read_trace("balancer_trade2.json");
+        let bal = MyInspector::new();
+        bal.inspect(&mut inspection);
+
+        let known = inspection.known();
+        dbg!(&known);
+        assert_eq!(known.len(), 3);
+        let trade = known[0].as_ref().trade().unwrap();
+        assert_eq!(
+            trade.t1.amount,
+            U256::from_dec_str("1882725882636").unwrap()
+        );
+        assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "cDAI",);
+        assert_eq!(
+            trade.t2.amount,
+            U256::from_dec_str("2048034448010009909").unwrap()
+        );
+        assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "COMP",);
+
+        // 2 comp payouts
+        let t1 = known[1].as_ref().transfer().unwrap();
+        assert_eq!(ADDRESSBOOK.get(&t1.token).unwrap(), "COMP",);
+        let t2 = known[2].as_ref().transfer().unwrap();
+        assert_eq!(ADDRESSBOOK.get(&t2.token).unwrap(), "COMP",);
     }
 }
