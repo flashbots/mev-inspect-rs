@@ -7,11 +7,11 @@ use mev_inspect::{
 
 use ethers::{
     providers::{Middleware, Provider, StreamExt},
-    types::{BlockNumber, TxHash},
+    types::{BlockNumber, TxHash, U256},
 };
 
 use gumdrop::Options;
-use std::{convert::TryFrom, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, convert::TryFrom, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Options, Clone)]
 struct Opts {
@@ -110,7 +110,21 @@ async fn main() -> anyhow::Result<()> {
             Command::Tx(opts) => {
                 let traces = provider.trace_transaction(opts.tx).await?;
                 if let Some(inspection) = processor.inspect_one(traces) {
-                    let evaluation = Evaluation::new(inspection, &provider, &prices).await?;
+                    let gas_used = provider
+                        .get_transaction_receipt(inspection.hash)
+                        .await?
+                        .expect("tx not found")
+                        .gas_used
+                        .unwrap_or_default();
+
+                    let gas_price = provider
+                        .get_transaction(inspection.hash)
+                        .await?
+                        .expect("tx not found")
+                        .gas_price;
+
+                    let evaluation =
+                        Evaluation::new(inspection, &prices, gas_used, gas_price).await?;
                     println!("Found: {:?}", evaluation.as_ref().hash);
                     println!("Revenue: {:?} WEI", evaluation.profit);
                     println!("Cost: {:?} WEI", evaluation.gas_used * evaluation.gas_price);
@@ -154,22 +168,54 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn process_block<T: Into<BlockNumber>, M: Middleware + 'static>(
-    block: T,
+async fn process_block<T: Send + Sync + Into<BlockNumber>, M: Middleware + 'static>(
+    block_number: T,
     provider: &M,
     processor: &BatchInspector,
     db: &mut MevDB<'_>,
     prices: &HistoricalPrice<M>,
 ) -> anyhow::Result<()> {
-    let block = block.into();
-    let traces = provider.trace_block(block).await?;
+    let block_number = block_number.into();
+    // get all the traces
+    let traces = provider.trace_block(block_number).await?;
+    // get all the block txs
+    let block = provider
+        .get_block_with_txs(block_number)
+        .await?
+        .expect("block should exist");
+    let gas_price_txs = block
+        .transactions
+        .iter()
+        .map(|tx| (tx.hash, tx.gas_price))
+        .collect::<HashMap<TxHash, U256>>();
+
+    // get all the receipts
+    let receipts = provider.parity_block_receipts(block_number).await?;
+    let gas_used_txs = receipts
+        .into_iter()
+        .map(|receipt| {
+            (
+                receipt.transaction_hash,
+                receipt.gas_used.unwrap_or_default(),
+            )
+        })
+        .collect::<HashMap<TxHash, U256>>();
+
     let inspections = processor.inspect_many(traces);
 
     let t1 = std::time::Instant::now();
 
-    let eval_futs = inspections
-        .into_iter()
-        .map(|inspection| Evaluation::new(inspection, provider, &prices));
+    let eval_futs = inspections.into_iter().map(|inspection| {
+        let gas_used = gas_used_txs
+            .get(&inspection.hash)
+            .cloned()
+            .unwrap_or_default();
+        let gas_price = gas_price_txs
+            .get(&inspection.hash)
+            .cloned()
+            .unwrap_or_default();
+        Evaluation::new(inspection, &prices, gas_used, gas_price)
+    });
     for evaluation in futures::future::join_all(eval_futs).await {
         if let Ok(evaluation) = evaluation {
             if !db.exists(evaluation.inspection.hash).await? {
@@ -180,7 +226,7 @@ async fn process_block<T: Into<BlockNumber>, M: Middleware + 'static>(
 
     println!(
         "Processed {:?} in {:?}",
-        block,
+        block_number,
         std::time::Instant::now().duration_since(t1)
     );
     Ok(())

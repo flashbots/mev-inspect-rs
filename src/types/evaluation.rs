@@ -44,24 +44,13 @@ impl Evaluation {
     /// to the database.
     pub async fn new<T: Middleware>(
         inspection: Inspection,
-        provider: &T,
         prices: &HistoricalPrice<T>,
+        gas_used: U256,
+        gas_price: U256,
     ) -> Result<Self, EvalError<T>>
     where
         T: 'static,
     {
-        let receipt = provider
-            .get_transaction_receipt(inspection.hash)
-            .await
-            .map_err(EvalError::Provider)?
-            .ok_or(EvalError::TxNotFound(inspection.hash))?;
-
-        let tx = provider
-            .get_transaction(inspection.hash)
-            .await
-            .map_err(EvalError::Provider)?
-            .ok_or(EvalError::TxNotFound(inspection.hash))?;
-
         // TODO: Figure out how to sum up liquidations & arbs while pruning
         // aggressively
         // TODO: If an Inspection is CHECKED and contains >1 trading protocol,
@@ -132,8 +121,8 @@ impl Evaluation {
 
         Ok(Evaluation {
             inspection,
-            gas_used: receipt.gas_used.unwrap_or(U256::zero()),
-            gas_price: tx.gas_price,
+            gas_used,
+            gas_price,
             actions,
             profit,
         })
