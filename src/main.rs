@@ -30,8 +30,8 @@ struct Opts {
     )]
     url: String,
 
-    #[options(default = "res", help = "Path to where traces will be cached")]
-    cache: PathBuf,
+    #[options(help = "Path to where traces will be cached")]
+    cache: Option<PathBuf>,
 
     // Postgres  Config
     #[options(default = "localhost", help = "the database's url")]
@@ -76,8 +76,16 @@ async fn main() -> anyhow::Result<()> {
     let opts = Opts::parse_args_default_or_exit();
 
     // Instantiate the provider and read from the cached files if needed
-    let provider = CachedProvider::new(Provider::try_from(opts.url.as_str())?, opts.cache);
+    if let Some(ref cache) = opts.cache {
+        let provider = CachedProvider::new(Provider::try_from(opts.url.as_str())?, cache);
+        run(provider, opts).await
+    } else {
+        let provider = Provider::try_from(opts.url.as_str())?;
+        run(provider, opts).await
+    }
+}
 
+async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow::Result<()> {
     // Instantiate the thing which will query historical prices
     let prices = HistoricalPrice::new(provider.clone());
 
