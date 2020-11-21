@@ -11,6 +11,7 @@ use ethers::{
 };
 
 use gumdrop::Options;
+use std::io::Write;
 use std::{collections::HashMap, convert::TryFrom, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Options, Clone)]
@@ -146,10 +147,13 @@ async fn main() -> anyhow::Result<()> {
             }
             Command::Blocks(inner) => {
                 let t1 = std::time::Instant::now();
+                let stdout = std::io::stdout();
+                let mut lock = stdout.lock();
                 for block in inner.from..inner.to {
                     // TODO: Can we do the block processing in parallel? Theoretically
                     // it should be possible
                     process_block(
+                        &mut lock,
                         block,
                         &provider,
                         &processor,
@@ -159,6 +163,7 @@ async fn main() -> anyhow::Result<()> {
                     )
                     .await?;
                 }
+                drop(lock);
 
                 println!(
                     "Processed {} blocks in {:?}",
@@ -171,8 +176,11 @@ async fn main() -> anyhow::Result<()> {
         let mut watcher = provider.watch_blocks().await?;
         while watcher.next().await.is_some() {
             let block = provider.get_block_number().await?;
-            println!("Got block: {}", block.as_u64());
+            let stdout = std::io::stdout();
+            let mut lock = stdout.lock();
+            writeln!(lock, "Got block: {}", block.as_u64())?;
             process_block(
+                &mut lock,
                 block.as_u64(),
                 &provider,
                 &processor,
@@ -188,6 +196,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn process_block<M: Middleware + 'static>(
+    lock: &mut std::io::StdoutLock<'_>,
     block_number: u64,
     provider: &M,
     processor: &BatchInspector,
@@ -250,10 +259,11 @@ async fn process_block<M: Middleware + 'static>(
         }
     }
 
-    println!(
+    writeln!(
+        lock,
         "Processed {:?} in {:?}",
         block_number,
         std::time::Instant::now().duration_since(t1)
-    );
+    )?;
     Ok(())
 }
