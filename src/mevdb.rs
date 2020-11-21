@@ -8,6 +8,7 @@ use tokio_postgres::{Client, NoTls};
 pub struct MevDB<'a> {
     client: Client,
     table_name: &'a str,
+    overwrite: String,
 }
 
 impl<'a> MevDB<'a> {
@@ -31,7 +32,13 @@ impl<'a> MevDB<'a> {
             }
         });
 
-        Ok(Self { client, table_name })
+        // TODO: Allow overwriting on conflict
+        let overwrite = "on conflict do nothing";
+        Ok(Self {
+            client,
+            table_name,
+            overwrite: overwrite.to_owned(),
+        })
     }
 
     /// Creates a new table for the MEV data
@@ -78,8 +85,8 @@ impl<'a> MevDB<'a> {
                         contract,
                         proxy_impl
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                    ",
-                    self.table_name
+                    {}",
+                    self.table_name, self.overwrite,
                 )
                 .as_str(),
                 &[
@@ -214,10 +221,8 @@ mod tests {
         client.insert(&evaluation).await.unwrap();
 
         assert!(client.exists(evaluation.as_ref().hash).await.unwrap());
-        assert!(client
-            .block_exists(evaluation.as_ref().block_number)
-            .await
-            .unwrap());
-        assert!(!client.block_exists(8).await.unwrap());
+
+        // conflicts get ignored
+        client.insert(&evaluation).await.unwrap();
     }
 }

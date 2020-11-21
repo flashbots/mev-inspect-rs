@@ -7,7 +7,7 @@ use mev_inspect::{
 
 use ethers::{
     providers::{Middleware, Provider, StreamExt},
-    types::{TxHash, U256},
+    types::{BlockNumber, TxHash, U256},
 };
 
 use gumdrop::Options;
@@ -110,6 +110,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
     ];
     let processor = BatchInspector::new(inspectors, reducers);
 
+    // TODO: Pass overwrite parameter
     let mut db = MevDB::connect(&opts.db_url, &opts.db_user, opts.db_pass, &opts.db_table).await?;
     db.create().await?;
     if opts.reset {
@@ -143,12 +144,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                     println!("Actions: {:?}", evaluation.actions);
                     println!("Protocols: {:?}", evaluation.inspection.protocols);
                     println!("Status: {:?}", evaluation.inspection.status);
-
-                    if !db.exists(opts.tx).await? {
-                        db.insert(&evaluation).await?;
-                    } else {
-                        eprintln!("Tx already in the database, skipping insertion.");
-                    }
+                    db.insert(&evaluation).await?;
                 } else {
                     eprintln!("No actions found for tx {:?}", opts.tx);
                 }
@@ -160,16 +156,8 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 for block in inner.from..inner.to {
                     // TODO: Can we do the block processing in parallel? Theoretically
                     // it should be possible
-                    process_block(
-                        &mut lock,
-                        block,
-                        &provider,
-                        &processor,
-                        &mut db,
-                        &prices,
-                        opts.overwrite,
-                    )
-                    .await?;
+                    process_block(&mut lock, block, &provider, &processor, &mut db, &prices)
+                        .await?;
                 }
                 drop(lock);
 
@@ -194,7 +182,6 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 &processor,
                 &mut db,
                 &prices,
-                opts.overwrite,
             )
             .await?;
         }
@@ -210,17 +197,13 @@ async fn process_block<M: Middleware + 'static>(
     processor: &BatchInspector,
     db: &mut MevDB<'_>,
     prices: &HistoricalPrice<M>,
-    overwrite: bool,
 ) -> anyhow::Result<()> {
     let block_number = block_number.into();
 
-    // short-cut if it exists
-    if !overwrite && db.block_exists(block_number).await? {
-        return Ok(());
-    }
-
     // get all the traces
-    let traces = provider.trace_block(block_number.into()).await?;
+    let traces = provider
+        .trace_block(BlockNumber::Number(block_number))
+        .await?;
     // get all the block txs
     let block = provider
         .get_block_with_txs(block_number)
@@ -261,9 +244,7 @@ async fn process_block<M: Middleware + 'static>(
     });
     for evaluation in futures::future::join_all(eval_futs).await {
         if let Ok(evaluation) = evaluation {
-            if overwrite || !db.exists(evaluation.inspection.hash).await? {
-                db.insert(&evaluation).await?;
-            }
+            db.insert(&evaluation).await?;
         }
     }
 
