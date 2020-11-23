@@ -73,7 +73,6 @@ impl Reducer for LiquidationReducer {
                             || ((received.token == *ETH && paid.t1.token == *WETH)
                                 || (received.token == *WETH && paid.t1.token == *ETH));
                         if received.amount > paid.t1.amount && tokens_match {
-                            dbg!(&liq, &received, &paid);
                             liq.received_amount = received.amount;
                             let profitable_liq = ProfitableLiquidation {
                                 token: paid.t1.token,
