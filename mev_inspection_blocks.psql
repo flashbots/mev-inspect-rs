@@ -1,0 +1,39 @@
+-- create initial table
+-- DROP TABLE IF EXISTS mev_inspection_blocks;
+-- CREATE TABLE mev_inspection_blocks (
+--     block_number int PRIMARY KEY,
+--     revenue float8,
+--     gas_used int,
+--     gas_used_for_mev int,
+--     fees float8,
+--     fees_for_mev float8
+-- );
+-- insert revenue
+INSERT INTO mev_inspection_blocks(block_number, revenue, gas_used, fees)
+SELECT block_number,
+    SUM(revenue) AS revenue,
+    SUM(gas_used) AS gas_used,
+    SUM(gas_used * gas_price) AS fees
+FROM mev_inspections
+GROUP BY block_number ON CONFLICT(block_number) DO
+UPDATE
+SET revenue = excluded.revenue,
+    gas_used = excluded.gas_used,
+    fees = excluded.fees;
+-- insert gas used
+INSERT INTO mev_inspection_blocks(
+        block_number,
+        gas_used_for_mev,
+        fees_for_mev
+    )
+SELECT block_number,
+    SUM(gas_used) AS gas_used_for_mev,
+    SUM(gas_price * gas_used) AS fees_for_mev
+FROM mev_inspections
+WHERE actions != '{}'
+    AND actions != '{trade}'
+    AND protocols != '{}'
+GROUP BY block_number ON CONFLICT(block_number) DO
+UPDATE
+SET gas_used_for_mev = excluded.gas_used_for_mev,
+    fees_for_mev = excluded.fees_for_mev;
