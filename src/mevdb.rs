@@ -59,7 +59,9 @@ impl<'a> MevDB<'a> {
 
                     eoa text,
                     contract text,
-                    proxy_impl text
+                    proxy_impl text,
+
+                    inserted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )",
                 self.table_name
             ))
