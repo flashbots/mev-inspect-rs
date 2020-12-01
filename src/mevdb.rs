@@ -2,7 +2,7 @@ use crate::types::Evaluation;
 use ethers::types::{TxHash, U256};
 use rust_decimal::prelude::*;
 use thiserror::Error;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{config::Config, Client, NoTls};
 
 /// Wrapper around PostGres for storing results in the database
 pub struct MevDB<'a> {
@@ -13,18 +13,8 @@ pub struct MevDB<'a> {
 
 impl<'a> MevDB<'a> {
     /// Connects to the MEV PostGres instance
-    pub async fn connect(
-        host: &str,
-        user: &str,
-        password: Option<String>,
-        table_name: &'a str,
-    ) -> Result<MevDB<'a>, DbError> {
-        let mut auth = format!("host={} user={}", host, user);
-        if let Some(password) = password {
-            auth = format!("{} password={}", auth, password);
-        }
-
-        let (client, connection) = tokio_postgres::connect(&auth, NoTls).await?;
+    pub async fn connect(cfg: Config, table_name: &'a str) -> Result<MevDB<'a>, DbError> {
+        let (client, connection) = cfg.connect(NoTls).await?;
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {

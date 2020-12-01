@@ -33,13 +33,8 @@ struct Opts {
     #[options(help = "Path to where traces will be cached")]
     cache: Option<PathBuf>,
 
-    // Postgres  Config
-    #[options(default = "localhost", help = "the database's url")]
-    db_url: String,
-    #[options(default = "postgres", help = "the user of the database")]
-    db_user: String,
-    #[options(help = "the password of the database")]
-    db_pass: Option<String>,
+    #[options(help = "Database config")]
+    db_cfg: tokio_postgres::Config,
     #[options(default = "mev_inspections", help = "the table of the database")]
     db_table: String,
 
@@ -111,7 +106,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
     let processor = BatchInspector::new(inspectors, reducers);
 
     // TODO: Pass overwrite parameter
-    let mut db = MevDB::connect(&opts.db_url, &opts.db_user, opts.db_pass, &opts.db_table).await?;
+    let mut db = MevDB::connect(opts.db_cfg, &opts.db_table).await?;
     db.create().await?;
     if opts.reset {
         db.clear().await?;
