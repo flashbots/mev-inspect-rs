@@ -17,15 +17,16 @@
 ## Running the CLI
 
 ```
-Usage: ./target/debug/mev-inspect [OPTIONS]
+Usage: ./target/release/mev-inspect [OPTIONS]
 
 Optional arguments:
   -h, --help
-  -u, --url URL          The tracing / archival node's URL (default: http://localhost:8545)
-  -c, --cache CACHE      Path to where traces will be cached (default: res)
-  -d, --db-url DB-URL    the database's url (default: localhost)
-  -D, --db-user DB-USER  the user of the database (default: postgres)
-  --db-table DB-TABLE    the table of the database (default: mev_inspections)
+  -r, --reset              clear and re-build the database
+  -o, --overwrite          do not skip blocks which already exist
+  -u, --url URL            The tracing / archival node's URL (default: http://localhost:8545)
+  -c, --cache CACHE        Path to where traces will be cached
+  -d, --db-cfg DB-CFG      Database config
+  -D, --db-table DB-TABLE  the table of the database (default: mev_inspections)
 
 Available commands:
   tx      inspect a transaction
