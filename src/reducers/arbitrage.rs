@@ -1,6 +1,9 @@
 use crate::{
     inspectors::find_matching,
-    types::{actions::Arbitrage, Classification, Inspection},
+    types::{
+        actions::{Arbitrage, SpecificAction},
+        Classification, Inspection,
+    },
     Reducer,
 };
 
@@ -55,7 +58,18 @@ impl Reducer for ArbitrageReducer {
         for range in prune {
             inspection.actions[range.0..range.1]
                 .iter_mut()
-                .for_each(|a| *a = Classification::Prune);
+                .for_each(|a| match a {
+                    // Of the known actions, prune only the trades/transfers
+                    Classification::Known(c) => match c.action {
+                        SpecificAction::Arbitrage(_)
+                        | SpecificAction::Trade(_)
+                        | SpecificAction::Transfer(_) => {
+                            *a = Classification::Prune;
+                        }
+                        _ => {}
+                    },
+                    _ => *a = Classification::Prune,
+                })
         }
     }
 }

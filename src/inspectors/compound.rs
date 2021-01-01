@@ -11,7 +11,7 @@ use ethers::{
     abi::{Abi, FunctionExt},
     contract::{abigen, BaseContract, ContractError},
     providers::Middleware,
-    types::{Address, Call, U256},
+    types::{Address, Call, CallType, U256},
 };
 
 use std::collections::HashMap;
@@ -53,6 +53,13 @@ impl Inspector for Compound {
             if let Some((mut liquidation, trace)) = self.try_as_liquidation(&action) {
                 if !inspection.protocols.contains(&Protocol::Compound) {
                     inspection.protocols.push(Protocol::Compound);
+                }
+
+                // omit the double-counted Dcall
+                if let Some(ref call_type) = action.to_call().map(|call| &call.call.call_type) {
+                    if matches!(call_type, CallType::DelegateCall) {
+                        continue;
+                    }
                 }
 
                 // once we find the `seize` call, parse it
