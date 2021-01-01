@@ -78,3 +78,57 @@ impl Aave {
         res
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        inspectors::ERC20, reducers::LiquidationReducer, test_helpers::read_trace, Reducer,
+    };
+
+    struct MyInspector {
+        aave: Aave,
+        erc20: ERC20,
+        reducer: LiquidationReducer,
+    }
+
+    impl MyInspector {
+        fn inspect(&self, inspection: &mut Inspection) {
+            self.aave.inspect(inspection);
+            self.erc20.inspect(inspection);
+            self.reducer.reduce(inspection);
+            inspection.prune();
+        }
+
+        fn new() -> Self {
+            Self {
+                aave: Aave::new(),
+                erc20: ERC20::new(),
+                reducer: LiquidationReducer::new(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn simple_liquidation() {
+        let mut inspection = read_trace("simple_liquidation.json");
+        let aave = MyInspector::new();
+        aave.inspect(&mut inspection);
+
+        let liquidation = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().liquidation())
+            .cloned()
+            .unwrap();
+
+        assert_eq!(
+            liquidation.sent_amount.to_string(),
+            "11558317402311470764075"
+        );
+        assert_eq!(
+            liquidation.received_amount.to_string(),
+            "1100830609991235507621"
+        );
+    }
+}
