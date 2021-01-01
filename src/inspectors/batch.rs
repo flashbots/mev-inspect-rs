@@ -74,6 +74,7 @@ mod tests {
         addresses::{ADDRESSBOOK, WETH},
         inspectors::*,
         reducers::*,
+        set,
         test_helpers::*,
         types::{Protocol, Status},
     };
@@ -126,7 +127,7 @@ mod tests {
             // SushiSwap is touched in a static call. The bot probably
             // checked whether it was more profitable to trade the
             // ETH for YFI on Sushi or Uni
-            vec![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
+            set![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
         );
 
         assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "WETH");
@@ -167,7 +168,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Uniswap, Protocol::Balancer]
+            set![Protocol::Uniswap, Protocol::Balancer]
         );
     }
 
@@ -202,7 +203,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Uniswap, Protocol::Balancer]
+            set![Protocol::Uniswap, Protocol::Balancer]
         );
     }
 
@@ -235,7 +236,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Sushiswap, Protocol::Curve]
+            set![Protocol::Sushiswap, Protocol::Curve]
         );
     }
 
@@ -266,7 +267,7 @@ mod tests {
         let known = inspection.known();
         dbg!(&known);
         assert_eq!(inspection.status, Status::Reverted);
-        assert_eq!(inspection.protocols, vec![Protocol::Uniswap])
+        assert_eq!(inspection.protocols, set![Protocol::Uniswap])
     }
 
     #[test]
@@ -297,7 +298,7 @@ mod tests {
         assert_eq!(inspection.status, Status::Success);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Aave, Protocol::DyDx, Protocol::Uniswap]
+            set![Protocol::Aave, Protocol::DyDx, Protocol::Uniswap]
         );
         let liquidation = known
             .iter()
@@ -338,7 +339,7 @@ mod tests {
         assert_eq!(inspection.status, Status::Success);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Aave, Protocol::Uniswappy]
+            set![Protocol::Aave, Protocol::Uniswappy]
         );
         let liquidation = known
             .iter()

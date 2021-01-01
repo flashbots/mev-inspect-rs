@@ -40,10 +40,8 @@ impl Inspector for Balancer {
                 {
                     inner
                 } else {
-                    if self.check(calltrace.as_ref())
-                        && !inspection.protocols.contains(&Protocol::Balancer)
-                    {
-                        inspection.protocols.push(Protocol::Balancer);
+                    if self.check(calltrace.as_ref()) {
+                        inspection.protocols.insert(Protocol::Balancer);
                     }
                     continue;
                 };
@@ -76,9 +74,7 @@ impl Inspector for Balancer {
                         prune.push(j);
                         prune.push(k);
 
-                        if !inspection.protocols.contains(&Protocol::Balancer) {
-                            inspection.protocols.push(Protocol::Balancer);
-                        }
+                        inspection.protocols.insert(Protocol::Balancer);
                     }
                     _ => {}
                 };

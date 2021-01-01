@@ -41,6 +41,8 @@ impl Inspector for Uniswap {
                 let call = calltrace.as_ref();
                 let preflight = self.is_preflight(call);
 
+                // we classify AddLiquidity calls in order to find sandwich attacks
+                // by removing/adding liquidity before/after a trade
                 if let Ok((token0, token1, amount0, amount1, _, _, _, _)) = self
                     .router
                     .decode::<AddLiquidity, _>("addLiquidity", &call.input)
@@ -58,9 +60,7 @@ impl Inspector for Uniswap {
                 {
                     // add the protocol
                     let protocol = uniswappy(&call);
-                    if !inspection.protocols.contains(&protocol) {
-                        inspection.protocols.push(protocol);
-                    }
+                    inspection.protocols.insert(protocol);
 
                     // skip flashswaps -- TODO: Get an example tx.
                     if bytes.as_ref().len() > 0 {
@@ -112,9 +112,7 @@ impl Inspector for Uniswap {
                 } else if (call.call_type == CallType::StaticCall && preflight) || self.check(call)
                 {
                     let protocol = uniswappy(&call);
-                    if !inspection.protocols.contains(&protocol) {
-                        inspection.protocols.push(protocol);
-                    }
+                    inspection.protocols.insert(protocol);
                     *action = Classification::Prune;
                 }
             }
@@ -268,7 +266,7 @@ pub mod tests {
             assert_eq!(inspection.unknown().len(), 7);
             assert_eq!(
                 inspection.protocols,
-                vec![Protocol::Sushiswap, Protocol::Uniswap]
+                crate::set![Protocol::Sushiswap, Protocol::Uniswap]
             );
         }
 
@@ -324,52 +322,51 @@ pub mod tests {
     // Traces which either reverted or returned early on purpose, after checking
     // for an arb opportunity and seeing that it won't work.
     fn checked() {
-        let both = &[Protocol::Uniswap, Protocol::Sushiswap][..];
-        let uni = &[Protocol::Uniswap][..];
+        let both = crate::set![Protocol::Uniswap, Protocol::Sushiswap];
+        let uni = crate::set![Protocol::Uniswap];
         for (trace, protocols) in &[
             (
                 "0x2f85ce5bb5f7833e052897fa4a070615a4e21a247e1ccc2347a3882f0e73943d",
-                both,
+                &both,
             ),
             (
                 "0xd9df5ae2e9e18099913559f71473866758df3fd25919be605c71c300e64165fd",
-                [Protocol::Uniswap, Protocol::SakeSwap].as_ref(),
+                &crate::set![Protocol::Uniswap, Protocol::SakeSwap],
             ),
             (
                 "0xfd24e512dc90bd1ca8a4f7987be6122c1fa3221b261e8728212f2f4d980ee4cd",
-                both,
+                &both,
             ),
             (
                 "0xf5f0b7e1c1761eff33956965f90b6d291fa2ff3c9907b450d483a58932c54598",
-                both,
+                &both,
             ),
             (
                 "0x4cf1a912197c2542208f7c1b5624fa5ea75508fa45f41c28f7e6aaa443d14db2",
-                both,
+                &both,
             ),
             (
                 "0x9b08b7c8efe5cfd40c012b956a6031f60c076bc07d5946888a0d55e5ed78b38a",
-                uni,
+                &uni,
             ),
             (
                 "0xe43734199366c665e341675e0f6ea280745d7d801924815b2c642dc83c8756d6",
-                both,
+                &both,
             ),
             (
                 "0x243b4b5bf96d345f690f6b17e75031dc634d0e97c47d73cbecf2327250077591",
-                both,
+                &both,
             ),
             (
                 "0x52311e6ec870f530e84f79bbb08dce05c95d80af5a3cb29ab85d128a15dbea8d",
-                uni,
+                &uni,
             ),
         ] {
             let mut inspection = get_trace(trace);
             let uni = MyInspector::new();
             uni.inspect(&mut inspection);
             assert_eq!(inspection.status, Status::Checked);
-            inspection.protocols.sort();
-            assert_eq!(inspection.protocols, *protocols);
+            assert_eq!(inspection.protocols, **protocols);
         }
     }
 

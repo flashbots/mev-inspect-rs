@@ -20,7 +20,7 @@ pub enum Status {
     Success,
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Ord)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Ord, Hash)]
 /// The supported protocols
 pub enum Protocol {
     // Uniswap & Forks

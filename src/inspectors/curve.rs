@@ -41,8 +41,8 @@ impl Inspector for Curve {
 
             if let Some(calltrace) = action.to_call() {
                 let call = calltrace.as_ref();
-                if self.check(call) && !inspection.protocols.contains(&Protocol::Curve) {
-                    inspection.protocols.push(Protocol::Curve);
+                if self.check(call) {
+                    inspection.protocols.insert(Protocol::Curve);
                 }
 
                 if let Some(liquidity) = self.as_add_liquidity(&call.to, &call.input) {
@@ -114,6 +114,7 @@ impl Curve {
         let registry = CurveRegistry::new(*CURVE_REGISTRY, provider);
 
         let pool_count = registry.pool_count().call().await?;
+        // TODO: Cache these locally.
         for i in 0..pool_count.as_u64() {
             let pool = registry.pool_list(i.into()).call().await?;
             let tokens = registry.get_underlying_coins(pool).call().await?;
@@ -158,7 +159,7 @@ mod tests {
                 .unwrap();
         let curve = Curve::create(std::sync::Arc::new(provider)).await.unwrap();
 
-        assert_eq!(curve.pools.len(), 8);
+        assert_eq!(curve.pools.len(), 26);
     }
 
     struct MyInspector {
