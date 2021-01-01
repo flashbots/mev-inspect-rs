@@ -94,6 +94,12 @@ impl Curve {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        inspectors::ERC20,
+        reducers::{ArbitrageReducer, TradeReducer},
+        test_helpers::read_trace,
+        Reducer,
+    };
     use ethers::providers::Provider;
     use std::convert::TryFrom;
 
@@ -105,5 +111,46 @@ mod tests {
         let curve = Curve::create(std::sync::Arc::new(provider)).await.unwrap();
 
         assert_eq!(curve.pools.len(), 8);
+    }
+
+    struct MyInspector {
+        inspector: Curve,
+        erc20: ERC20,
+        reducer1: TradeReducer,
+        reducer2: ArbitrageReducer,
+    }
+
+    impl MyInspector {
+        fn inspect(&self, inspection: &mut Inspection) {
+            self.inspector.inspect(inspection);
+            self.erc20.inspect(inspection);
+            self.reducer1.reduce(inspection);
+            self.reducer2.reduce(inspection);
+            inspection.prune();
+        }
+
+        fn new() -> Self {
+            Self {
+                inspector: Curve::new(),
+                erc20: ERC20::new(),
+                reducer1: TradeReducer::new(),
+                reducer2: ArbitrageReducer::new(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn simple_arb() {
+        let mut inspection = read_trace("simple_curve_arb.json");
+        let inspector = MyInspector::new();
+        inspector.inspect(&mut inspection);
+
+        let arb = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().arbitrage())
+            .cloned()
+            .unwrap();
+        assert_eq!(arb.profit.to_string(), "45259140804");
     }
 }
