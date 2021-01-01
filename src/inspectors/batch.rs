@@ -347,4 +347,36 @@ mod tests {
         assert_eq!(ADDRESSBOOK.get(&liquidation.sent_token).unwrap(), "BAT");
         assert_eq!(ADDRESSBOOK.get(&liquidation.received_token).unwrap(), "DAI");
     }
+
+    #[tokio::test]
+    // This was a failed attempt at a triangular arb between zHEGIC/WETH, zHEGIC/HEGIC
+    // and the HEGIC/WETH pools. The arb, if successful, would've yielded 0.1 ETH:
+    // 1. Known bot sends 115 WETH to 0xa084 (their proxy)
+    // 2. 0xa084 trades 3.583 WETH for zHEGIC
+    // 3. trades zHEGIC for HEGIC
+    // 4. trades HEGIC for 3.685 WETH whcih stays at 0xa084
+    // 5. send the remaining 111 WETH back to known bot
+    async fn reverted_arb_positive_revenue() {
+        let mut inspection = read_trace("reverted_arb.json");
+
+        let inspector = BatchInspector::new(
+            vec![Box::new(ERC20::new()), Box::new(Uniswap::new())],
+            vec![
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let arb = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().arbitrage())
+            .cloned()
+            .unwrap();
+        assert_eq!(arb.profit.to_string(), "101664758086906735");
+        assert_eq!(inspection.status, Status::Reverted);
+    }
 }
