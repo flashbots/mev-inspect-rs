@@ -117,7 +117,6 @@ impl Curve {
         for i in 0..pool_count.as_u64() {
             let pool = registry.pool_list(i.into()).call().await?;
             let tokens = registry.get_underlying_coins(pool).call().await?;
-            dbg!(&tokens);
             this.pools.insert(pool, tokens.to_vec());
         }
 
