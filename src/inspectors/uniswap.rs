@@ -7,7 +7,7 @@ use crate::{
 
 use ethers::{abi::Abi, contract::BaseContract};
 use ethers::{
-    contract::decode_fn as abi_decode,
+    contract::decode_function_data,
     types::{Address, Bytes, Call as TraceCall, CallType, U256},
 };
 
@@ -171,11 +171,12 @@ impl Uniswap {
             for function in self.router.as_ref().functions() {
                 if function.name.starts_with("swapETH") || function.name.starts_with("swapExactETH")
                 {
-                    if abi_decode::<SwapEthFor, _>(function, &call.input, true).is_ok() {
+                    if decode_function_data::<SwapEthFor, _>(function, &call.input, true).is_ok() {
                         return true;
                     }
                 } else if function.name.starts_with("swap") {
-                    if abi_decode::<SwapTokensFor, _>(function, &call.input, true).is_ok() {
+                    if decode_function_data::<SwapTokensFor, _>(function, &call.input, true).is_ok()
+                    {
                         return true;
                     }
                 }

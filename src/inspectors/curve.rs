@@ -6,7 +6,7 @@ use crate::{
 
 use ethers::{abi::Abi, contract::BaseContract};
 use ethers::{
-    contract::decode_fn as abi_decode,
+    contract::decode_function_data,
     contract::{abigen, ContractError},
     providers::Middleware,
     types::{Address, Call as TraceCall, U256},
@@ -82,7 +82,7 @@ impl Curve {
         for function in self.pool.as_ref().functions() {
             // exchange & exchange_underlying
             if function.name.starts_with("exchange")
-                && abi_decode::<Exchange, _>(function, &call.input, true).is_ok()
+                && decode_function_data::<Exchange, _>(function, &call.input, true).is_ok()
             {
                 return true;
             }

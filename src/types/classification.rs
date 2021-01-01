@@ -1,6 +1,5 @@
 use crate::{addresses::lookup, is_subtrace, types::actions::SpecificAction};
 use ethers::types::Call;
-use rustc_hex::ToHex;
 use std::fmt;
 
 #[derive(Clone, PartialEq)]
@@ -127,7 +126,7 @@ impl fmt::Debug for Classification {
                 .field("to", &lookup(call.to))
                 .field("value", &call.value)
                 .field("gas", &call.gas)
-                .field("input", &call.input.as_ref().to_hex::<String>())
+                .field("input", &hex::encode(&call.input))
                 .field("call_type", &call.call_type)
                 .field("trace", trace_address)
                 .finish(),
