@@ -26,7 +26,7 @@ impl Reducer for ArbitrageReducer {
             .enumerate()
             .for_each(|(i, action)| {
                 // check if we got a trade
-                let trade = if let Some(trade) = action.to_action().map(|x| x.trade()).flatten() {
+                let trade = if let Some(trade) = action.as_action().map(|x| x.trade()).flatten() {
                     trade
                 } else {
                     return;

@@ -91,21 +91,21 @@ impl Classification {
         v
     }
 
-    pub fn to_action(&self) -> Option<&SpecificAction> {
+    pub fn as_action(&self) -> Option<&SpecificAction> {
         match self {
             Classification::Known(ref inner) => Some(&inner.action),
             _ => None,
         }
     }
 
-    pub fn to_action_mut(&mut self) -> Option<&mut SpecificAction> {
+    pub fn as_action_mut(&mut self) -> Option<&mut SpecificAction> {
         match self {
             Classification::Known(ref mut inner) => Some(&mut inner.action),
             _ => None,
         }
     }
 
-    pub fn to_call(&self) -> Option<&CallTrace> {
+    pub fn as_call(&self) -> Option<&CallTrace> {
         match self {
             Classification::Unknown(ref inner) => Some(&inner),
             _ => None,

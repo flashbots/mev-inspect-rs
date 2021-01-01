@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 pub fn lookup(address: Address) -> String {
     ADDRESSBOOK
         .get(&address)
-        .unwrap_or(&format!("{:?}", &address).to_string())
+        .unwrap_or(&format!("{:?}", &address))
         .clone()
 }
 
@@ -58,13 +58,11 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
         Protocol::SakeSwap,
     );
 
-    let map = insert_many(
+    insert_many(
         map,
         &["0xfe01821Ca163844203220cd08E4f2B2FB43aE4E4"], // 0x: BalancerBridge
         Protocol::Balancer,
-    );
-
-    map
+    )
 });
 
 // Addresses which should be ignored when used as the target of a transaction
@@ -194,7 +192,7 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
     .collect();
 
     // https://github.com/flashbots/mev-inspect/blob/master/src/InspectorKnownBot.ts#L17
-    let map = insert_many(
+    insert_many(
         map,
         &[
             "0x9799b475dec92bd99bbdd943013325c36157f383",
@@ -252,15 +250,10 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
             "0x80119949f52cb9bf18ecf259e3c3b59f0e5e5a5b",
         ],
         "KNOWN BOT".to_string(),
-    );
-
-    map
+    )
 });
 
 pub fn parse_address(addr: &str) -> Address {
-    if addr.starts_with("0x") {
-        addr[2..].parse().unwrap()
-    } else {
-        addr.parse().unwrap()
-    }
+    let addr = addr.strip_prefix("0x").unwrap_or(addr);
+    addr.parse().unwrap()
 }

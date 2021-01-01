@@ -54,7 +54,7 @@ impl Inspector for Compound {
                 inspection.protocols.insert(Protocol::Compound);
 
                 // omit the double-counted Dcall
-                if let Some(ref call_type) = action.to_call().map(|call| &call.call.call_type) {
+                if let Some(ref call_type) = action.as_call().map(|call| &call.call.call_type) {
                     if matches!(call_type, CallType::DelegateCall) {
                         continue;
                     }

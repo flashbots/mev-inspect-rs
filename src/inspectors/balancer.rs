@@ -27,7 +27,7 @@ impl Inspector for Balancer {
         for i in 0..inspection.actions.len() {
             let action = &mut inspection.actions[i];
 
-            if let Some(calltrace) = action.to_call() {
+            if let Some(calltrace) = action.as_call() {
                 let call = calltrace.as_ref();
                 let (token_in, _, token_out, _, _) = if let Ok(inner) = self
                     .bpool

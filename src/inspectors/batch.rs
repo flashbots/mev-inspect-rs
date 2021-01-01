@@ -22,27 +22,25 @@ impl BatchInspector {
 
     /// Given a trace iterator, it groups all traces for the same tx hash
     /// and then inspects them and all of their subtraces
-    pub fn inspect_many<'a>(&'a self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
+    pub fn inspect_many(&self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
         // group traces in a block by tx hash
         let traces = traces.into_iter().group_by(|t| t.transaction_hash);
 
         // inspects everything
-        let inspections = traces
+        traces
             .into_iter()
             // Convert the traces to inspections
             .filter_map(|(_, traces)| self.inspect_one(traces))
-            .collect::<Vec<_>>();
-
-        inspections
+            .collect::<Vec<_>>()
     }
 
-    pub fn inspect_one<'a, T>(&'a self, traces: T) -> Option<Inspection>
+    pub fn inspect_one<T>(&self, traces: T) -> Option<Inspection>
     where
         T: IntoIterator<Item = Trace>,
     {
         use std::convert::TryFrom;
         let mut res = None;
-        if let Some(mut i) = Inspection::try_from(TraceWrapper(traces)).ok() {
+        if let Ok(mut i) = Inspection::try_from(TraceWrapper(traces)) {
             if !i.actions.is_empty() {
                 self.inspect(&mut i);
                 self.reduce(&mut i);

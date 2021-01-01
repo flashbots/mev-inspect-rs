@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use crate::{
     addresses::CURVE_REGISTRY,
     traits::Inspector,
@@ -39,7 +40,7 @@ impl Inspector for Curve {
         for i in 0..inspection.actions.len() {
             let action = &mut inspection.actions[i];
 
-            if let Some(calltrace) = action.to_call() {
+            if let Some(calltrace) = action.as_call() {
                 let call = calltrace.as_ref();
                 if self.check(call) {
                     inspection.protocols.insert(Protocol::Curve);
@@ -77,12 +78,7 @@ impl Curve {
     }
 
     fn as_add_liquidity(&self, to: &Address, data: &Bytes) -> Option<AddLiquidity> {
-        let tokens = if let Some(tokens) = self.pools.get(to) {
-            tokens
-        } else {
-            return None;
-        };
-
+        let tokens = self.pools.get(to)?;
         // adapter for Curve's pool-specific abi decoding
         // TODO: Do we need to add the tripool?
         let amounts = match tokens.len() {

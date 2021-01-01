@@ -57,7 +57,7 @@ where
     let mut found_known = false;
     actions.find_map(|(j, a)| {
         if check_all || !found_known {
-            if let Some(action) = a.to_action() {
+            if let Some(action) = a.as_action() {
                 if let Some(t) = cast(&action) {
                     if check_fn(t) {
                         return Some((j, t));

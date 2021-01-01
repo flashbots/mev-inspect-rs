@@ -31,7 +31,7 @@ impl Reducer for LiquidationReducer {
             .enumerate()
             .for_each(|(i, ref mut action)| {
                 let opt = action
-                    .to_action_mut()
+                    .as_action_mut()
                     .map(|x| x.liquidation_mut())
                     .flatten();
                 let liquidation = if let Some(liquidation) = opt {

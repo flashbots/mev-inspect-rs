@@ -36,7 +36,7 @@ impl Inspector for ZeroEx {
         for i in 0..inspection.actions.len() {
             let action = &mut inspection.actions[i];
 
-            if let Some(calltrace) = action.to_call() {
+            if let Some(calltrace) = action.as_call() {
                 let call = calltrace.as_ref();
 
                 if let Ok(transfer) = self

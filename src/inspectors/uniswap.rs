@@ -37,7 +37,7 @@ impl Inspector for Uniswap {
         for i in 0..inspection.actions.len() {
             let action = &mut inspection.actions[i];
 
-            if let Some(calltrace) = action.to_call() {
+            if let Some(calltrace) = action.as_call() {
                 let call = calltrace.as_ref();
                 let preflight = self.is_preflight(call);
 
@@ -63,7 +63,7 @@ impl Inspector for Uniswap {
                     inspection.protocols.insert(protocol);
 
                     // skip flashswaps -- TODO: Get an example tx.
-                    if bytes.as_ref().len() > 0 {
+                    if !bytes.as_ref().is_empty() {
                         eprintln!("Flashswaps are not supported. {:?}", inspection.hash);
                         continue;
                     }
@@ -129,7 +129,7 @@ impl Inspector for Uniswap {
             && inspection
                 .actions
                 .iter()
-                .filter_map(|x| x.to_action())
+                .filter_map(|x| x.as_action())
                 .count()
                 < 2
             && !has_trade

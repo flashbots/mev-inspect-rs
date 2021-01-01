@@ -124,7 +124,7 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
             from: call.from,
             contract: call.to,
             proxy_impl: None,
-            hash: trace.transaction_hash.unwrap_or(TxHash::zero()),
+            hash: trace.transaction_hash.unwrap_or_else(TxHash::zero),
             block_number: trace.block_number,
         };
 

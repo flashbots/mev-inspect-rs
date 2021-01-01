@@ -96,7 +96,7 @@ impl<'a> MevDB<'a> {
                         .inspection
                         .proxy_impl
                         .map(|x| format!("{:?}", x))
-                        .unwrap_or("".to_owned()),
+                        .unwrap_or_else(|| "".to_owned()),
                 ],
             )
             .await?;
