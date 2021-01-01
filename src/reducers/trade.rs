@@ -24,7 +24,7 @@ impl Reducer for TradeReducer {
             .for_each(|(i, action)| {
                 // check if we got a transfer
                 let transfer =
-                    if let Some(transfer) = action.to_action().map(|x| x.transfer()).flatten() {
+                    if let Some(transfer) = action.as_action().map(|x| x.transfer()).flatten() {
                         transfer
                     } else {
                         return;

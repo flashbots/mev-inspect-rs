@@ -81,10 +81,12 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow::Result<()> {
+    let provider = Arc::new(provider);
     // Instantiate the thing which will query historical prices
     let prices = HistoricalPrice::new(provider.clone());
 
-    let provider2 = Arc::new(provider.clone());
+    let compound = Compound::create(provider.clone()).await?;
+    let curve = Curve::create(provider.clone()).await?;
     let inspectors: Vec<Box<dyn Inspector>> = vec![
         // Classify Transfers
         Box::new(ZeroEx::new()),
@@ -92,10 +94,10 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
         // Classify AMMs
         Box::new(Balancer::new()),
         Box::new(Uniswap::new()),
-        Box::new(Curve::create(provider2.clone()).await?),
+        Box::new(curve),
         // Classify Liquidations
         Box::new(Aave::new()),
-        Box::new(Compound::create(provider2).await?),
+        Box::new(compound),
     ];
 
     let reducers: Vec<Box<dyn Reducer>> = vec![

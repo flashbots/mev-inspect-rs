@@ -19,7 +19,7 @@ pub struct ERC20(BaseContract);
 impl Inspector for ERC20 {
     fn inspect(&self, inspection: &mut Inspection) {
         inspection.actions.iter_mut().for_each(|classification| {
-            if let Some(calltrace) = classification.to_call() {
+            if let Some(calltrace) = classification.as_call() {
                 if let Some(transfer) = self.try_parse(calltrace.as_ref()) {
                     *classification = Classification::new(transfer, calltrace.trace_address.clone())
                 }

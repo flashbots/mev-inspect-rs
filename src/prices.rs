@@ -1,3 +1,4 @@
+#![allow(clippy::clippy::too_many_arguments)]
 use crate::addresses::{parse_address, ETH, WETH};
 use ethers::{
     contract::{abigen, ContractError},
@@ -31,7 +32,7 @@ impl<M: Middleware> HistoricalPrice<M> {
             .parse()
             .expect("cannot parse unirouter");
         Self {
-            uniswap: Uniswap::new(unirouter.clone(), provider.into()),
+            uniswap: Uniswap::new(unirouter, provider.into()),
         }
     }
 

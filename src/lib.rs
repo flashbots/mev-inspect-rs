@@ -1,3 +1,5 @@
+#![allow(clippy::clippy::new_without_default)]
+#![allow(clippy::clippy::clippy::single_match)]
 //! MEV-INSPECT
 //!
 //! Utility for MEV Inspection
@@ -60,7 +62,7 @@ pub(crate) fn actions_after(
 
     let subtraces = rest
         .iter()
-        .filter_map(|t| t.to_call().map(|x| &x.call))
+        .filter_map(|t| t.as_call().map(|x| &x.call))
         .collect();
     (action, subtraces)
 }

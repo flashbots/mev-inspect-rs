@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 pub fn lookup(address: Address) -> String {
     ADDRESSBOOK
         .get(&address)
-        .unwrap_or(&format!("{:?}", &address).to_string())
+        .unwrap_or(&format!("{:?}", &address))
         .clone()
 }
 
@@ -58,13 +58,11 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
         Protocol::SakeSwap,
     );
 
-    let map = insert_many(
+    insert_many(
         map,
         &["0xfe01821Ca163844203220cd08E4f2B2FB43aE4E4"], // 0x: BalancerBridge
         Protocol::Balancer,
-    );
-
-    map
+    )
 });
 
 // Addresses which should be ignored when used as the target of a transaction
@@ -76,6 +74,8 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0x86969d29F5fd327E1009bA66072BE22DB6017cC6"));
     // furucombo
     set.insert(parse_address("0x57805e5a227937bac2b0fdacaa30413ddac6b8e1"));
+    // yearn recycler
+    set.insert(parse_address("0x5F07257145fDd889c6E318F99828E68A449A5c7A"));
     set
 });
 
@@ -86,7 +86,7 @@ pub static BALANCER_PROXY: Lazy<Address> =
     Lazy::new(|| parse_address("0x3E66B66Fd1d0b02fDa6C811Da9E0547970DB2f21"));
 
 pub static CURVE_REGISTRY: Lazy<Address> =
-    Lazy::new(|| parse_address("7002B727Ef8F5571Cb5F9D70D13DBEEb4dFAe9d1"));
+    Lazy::new(|| parse_address("0x7D86446dDb609eD0F5f8684AcF30380a356b2B4c"));
 
 pub static CETH: Lazy<Address> =
     Lazy::new(|| parse_address("4Ddc2D193948926D02f9B1fE9e1daa0718270ED5"));
@@ -179,6 +179,8 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
         ("0x6B175474E89094C44DA98B954EEDEAC495271D0F", "DAI"),
         ("0xc00e94cb662c3520282e6f5717214004a7f26888", "COMP"),
         ("0x5d3a536e4d6dbd6114cc1ead35777bab948e3643", "cDAI"),
+        ("0x514910771af9ca656af840dff83e8264ecf986ca", "LINK"),
+        ("0x2260fac5e5542a773aa44fbcfedf7c193bc2c599", "WBTC"),
         (
             "0x5dbcf33d8c2e976c6b560249878e6f1491bca25c",
             "yyDAI+yUSDC+yUSDT+yTUSD",
@@ -190,7 +192,7 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
     .collect();
 
     // https://github.com/flashbots/mev-inspect/blob/master/src/InspectorKnownBot.ts#L17
-    let map = insert_many(
+    insert_many(
         map,
         &[
             "0x9799b475dec92bd99bbdd943013325c36157f383",
@@ -248,15 +250,10 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
             "0x80119949f52cb9bf18ecf259e3c3b59f0e5e5a5b",
         ],
         "KNOWN BOT".to_string(),
-    );
-
-    map
+    )
 });
 
 pub fn parse_address(addr: &str) -> Address {
-    if addr.starts_with("0x") {
-        addr[2..].parse().unwrap()
-    } else {
-        addr.parse().unwrap()
-    }
+    let addr = addr.strip_prefix("0x").unwrap_or(addr);
+    addr.parse().unwrap()
 }

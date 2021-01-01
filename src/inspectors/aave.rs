@@ -29,52 +29,90 @@ impl Aave {
 
 impl Inspector for Aave {
     fn inspect(&self, inspection: &mut Inspection) {
-        let actions = &mut inspection.actions;
+        for action in inspection.actions.iter_mut() {
+            match action {
+                Classification::Unknown(ref mut calltrace) => {
+                    let call = calltrace.as_ref();
+                    if call.to == *AAVE_LENDING_POOL {
+                        inspection.protocols.insert(Protocol::Aave);
 
-        let protocols = actions
-            .iter_mut()
-            .filter_map(|action| self.inspect_one(action))
-            .collect::<Vec<_>>();
+                        // https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol#L805
+                        if let Ok((collateral, reserve, user, purchase_amount, _)) =
+                            self.pool
+                                .decode::<LiquidationCall, _>("liquidationCall", &call.input)
+                        {
+                            // Set the amount to 0. We'll set it at the reducer
+                            *action = Classification::new(
+                                Liquidation {
+                                    sent_token: reserve,
+                                    sent_amount: purchase_amount,
 
-        inspection.protocols.extend(&protocols[..]);
-        inspection.protocols.sort_unstable();
-        inspection.protocols.dedup();
+                                    received_token: collateral,
+                                    received_amount: U256::zero(),
+                                    from: call.from,
+                                    liquidated_user: user,
+                                },
+                                calltrace.trace_address.clone(),
+                            );
+                        }
+                    }
+                }
+                Classification::Known(_) | Classification::Prune => {}
+            }
+        }
     }
 }
 
-impl Aave {
-    fn inspect_one(&self, action: &mut Classification) -> Option<Protocol> {
-        let mut res = None;
-        match action {
-            Classification::Unknown(ref mut calltrace) => {
-                let call = calltrace.as_ref();
-                if call.to == *AAVE_LENDING_POOL {
-                    res = Some(Protocol::Aave);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        inspectors::ERC20, reducers::LiquidationReducer, test_helpers::read_trace, Reducer,
+    };
 
-                    // https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol#L805
-                    if let Ok((collateral, reserve, user, purchase_amount, _)) =
-                        self.pool
-                            .decode::<LiquidationCall, _>("liquidationCall", &call.input)
-                    {
-                        // Set the amount to 0. We'll set it at the reducer
-                        *action = Classification::new(
-                            Liquidation {
-                                sent_token: reserve,
-                                sent_amount: purchase_amount,
+    struct MyInspector {
+        aave: Aave,
+        erc20: ERC20,
+        reducer: LiquidationReducer,
+    }
 
-                                received_token: collateral,
-                                received_amount: U256::zero(),
-                                from: call.from,
-                                liquidated_user: user,
-                            },
-                            calltrace.trace_address.clone(),
-                        );
-                    }
-                }
-            }
-            Classification::Known(_) | Classification::Prune => {}
+    impl MyInspector {
+        fn inspect(&self, inspection: &mut Inspection) {
+            self.aave.inspect(inspection);
+            self.erc20.inspect(inspection);
+            self.reducer.reduce(inspection);
+            inspection.prune();
         }
 
-        res
+        fn new() -> Self {
+            Self {
+                aave: Aave::new(),
+                erc20: ERC20::new(),
+                reducer: LiquidationReducer::new(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn simple_liquidation() {
+        let mut inspection = read_trace("simple_liquidation.json");
+        let aave = MyInspector::new();
+        aave.inspect(&mut inspection);
+
+        let liquidation = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().liquidation())
+            .cloned()
+            .unwrap();
+
+        assert_eq!(
+            liquidation.sent_amount.to_string(),
+            "11558317402311470764075"
+        );
+        assert_eq!(
+            liquidation.received_amount.to_string(),
+            "1100830609991235507621"
+        );
     }
 }

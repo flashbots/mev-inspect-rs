@@ -22,27 +22,25 @@ impl BatchInspector {
 
     /// Given a trace iterator, it groups all traces for the same tx hash
     /// and then inspects them and all of their subtraces
-    pub fn inspect_many<'a>(&'a self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
+    pub fn inspect_many(&self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
         // group traces in a block by tx hash
         let traces = traces.into_iter().group_by(|t| t.transaction_hash);
 
         // inspects everything
-        let inspections = traces
+        traces
             .into_iter()
             // Convert the traces to inspections
             .filter_map(|(_, traces)| self.inspect_one(traces))
-            .collect::<Vec<_>>();
-
-        inspections
+            .collect::<Vec<_>>()
     }
 
-    pub fn inspect_one<'a, T>(&'a self, traces: T) -> Option<Inspection>
+    pub fn inspect_one<T>(&self, traces: T) -> Option<Inspection>
     where
         T: IntoIterator<Item = Trace>,
     {
         use std::convert::TryFrom;
         let mut res = None;
-        if let Some(mut i) = Inspection::try_from(TraceWrapper(traces)).ok() {
+        if let Ok(mut i) = Inspection::try_from(TraceWrapper(traces)) {
             if !i.actions.is_empty() {
                 self.inspect(&mut i);
                 self.reduce(&mut i);
@@ -74,6 +72,7 @@ mod tests {
         addresses::{ADDRESSBOOK, WETH},
         inspectors::*,
         reducers::*,
+        set,
         test_helpers::*,
         types::{Protocol, Status},
     };
@@ -95,7 +94,7 @@ mod tests {
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Aave::new()),
-                Box::new(Curve::new()), // even though the Curve inspector is on, there's no Curve in the found protocols
+                Box::new(Curve::new(vec![])), // even though the Curve inspector is on, there's no Curve in the found protocols
             ],
             vec![
                 // Classify liquidations first
@@ -126,7 +125,7 @@ mod tests {
             // SushiSwap is touched in a static call. The bot probably
             // checked whether it was more profitable to trade the
             // ETH for YFI on Sushi or Uni
-            vec![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
+            set![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
         );
 
         assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "WETH");
@@ -146,7 +145,7 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
                 Box::new(Balancer::new()),
             ],
             vec![
@@ -167,7 +166,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Uniswap, Protocol::Balancer]
+            set![Protocol::Uniswap, Protocol::Balancer]
         );
     }
 
@@ -181,7 +180,7 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
                 Box::new(Balancer::new()),
             ],
             vec![
@@ -202,7 +201,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Uniswap, Protocol::Balancer]
+            set![Protocol::Uniswap, Protocol::Balancer]
         );
     }
 
@@ -214,7 +213,7 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(TradeReducer::new()),
@@ -235,7 +234,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Sushiswap, Protocol::Curve]
+            set![Protocol::Sushiswap, Protocol::Curve]
         );
     }
 
@@ -251,7 +250,7 @@ mod tests {
                 Box::new(Uniswap::new()),
                 Box::new(Balancer::new()),
                 Box::new(ZeroEx::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(LiquidationReducer::new()),
@@ -266,7 +265,7 @@ mod tests {
         let known = inspection.known();
         dbg!(&known);
         assert_eq!(inspection.status, Status::Reverted);
-        assert_eq!(inspection.protocols, vec![Protocol::Uniswap])
+        assert_eq!(inspection.protocols, set![Protocol::Uniswap])
     }
 
     #[test]
@@ -281,7 +280,7 @@ mod tests {
                 Box::new(ZeroEx::new()),
                 Box::new(Balancer::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(LiquidationReducer::new()),
@@ -297,7 +296,7 @@ mod tests {
         assert_eq!(inspection.status, Status::Success);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Aave, Protocol::DyDx, Protocol::Uniswap]
+            set![Protocol::Aave, Protocol::DyDx, Protocol::Uniswap]
         );
         let liquidation = known
             .iter()
@@ -322,7 +321,7 @@ mod tests {
                 Box::new(ZeroEx::new()),
                 Box::new(Balancer::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(LiquidationReducer::new()),
@@ -338,7 +337,7 @@ mod tests {
         assert_eq!(inspection.status, Status::Success);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::Aave, Protocol::Uniswappy]
+            set![Protocol::Aave, Protocol::Uniswappy]
         );
         let liquidation = known
             .iter()
@@ -346,5 +345,80 @@ mod tests {
             .unwrap();
         assert_eq!(ADDRESSBOOK.get(&liquidation.sent_token).unwrap(), "BAT");
         assert_eq!(ADDRESSBOOK.get(&liquidation.received_token).unwrap(), "DAI");
+    }
+
+    #[tokio::test]
+    // This was a failed attempt at a triangular arb between zHEGIC/WETH, zHEGIC/HEGIC
+    // and the HEGIC/WETH pools. The arb, if successful, would've yielded 0.1 ETH:
+    // 1. Known bot sends 115 WETH to 0xa084 (their proxy)
+    // 2. 0xa084 trades 3.583 WETH for zHEGIC
+    // 3. trades zHEGIC for HEGIC
+    // 4. trades HEGIC for 3.685 WETH whcih stays at 0xa084
+    // 5. send the remaining 111 WETH back to known bot
+    async fn reverted_arb_positive_revenue() {
+        let mut inspection = read_trace("reverted_arb.json");
+
+        let inspector = BatchInspector::new(
+            vec![Box::new(ERC20::new()), Box::new(Uniswap::new())],
+            vec![
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        let arb = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().arbitrage())
+            .cloned()
+            .unwrap();
+        assert_eq!(arb.profit.to_string(), "101664758086906735");
+        assert_eq!(inspection.status, Status::Reverted);
+    }
+
+    #[tokio::test]
+    // This is added to ensure we do not misclassify Zapper txs
+    // https://github.com/flashbots/mev-inspect-ts/issues/14
+    async fn zapper_no_false_positive() {
+        let mut inspection = read_trace("zapper1.json");
+
+        let inspector = BatchInspector::new(
+            vec![Box::new(ERC20::new()), Box::new(Uniswap::new())],
+            vec![
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        // first a trade gets classified
+        let trade = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().trade())
+            .cloned()
+            .unwrap();
+        assert_eq!(trade.t1.amount.to_string(), "1101651860618174754");
+        assert_eq!(trade.t2.amount.to_string(), "3387662");
+
+        // then the addliquidity call gets classified
+        let add_liquidity = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().add_liquidity())
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            add_liquidity.amounts,
+            vec![
+                U256::from_dec_str("3387662").unwrap(),
+                U256::from_dec_str("1098348139381825246").unwrap(),
+            ]
+        );
     }
 }

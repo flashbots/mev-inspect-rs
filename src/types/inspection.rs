@@ -6,9 +6,9 @@ use crate::{
     },
 };
 use ethers::types::{Action, Address, CallType, Trace, TxHash};
-use std::convert::TryFrom;
+use std::{collections::HashSet, convert::TryFrom};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 /// The result of an inspection of a trace along with its inspected subtraces
 pub struct Inspection {
     /// Success / failure
@@ -20,8 +20,7 @@ pub struct Inspection {
 
     ///// Where
     /// All the involved protocols
-    // TODO: Should we tie this in each classified action?
-    pub protocols: Vec<Protocol>,
+    pub protocols: HashSet<Protocol>,
 
     // Who
     /// The sender of the transaction
@@ -121,11 +120,11 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
             // all unclassified calls
             actions: Vec::new(),
             // start off with empty protocols since everything is unclassified
-            protocols: Vec::new(),
+            protocols: HashSet::new(),
             from: call.from,
             contract: call.to,
             proxy_impl: None,
-            hash: trace.transaction_hash.unwrap_or(TxHash::zero()),
+            hash: trace.transaction_hash.unwrap_or_else(TxHash::zero),
             block_number: trace.block_number,
         };
 
@@ -148,7 +147,7 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
                         }
 
                         if call.to == *DYDX && !inspection.protocols.contains(&Protocol::DyDx) {
-                            inspection.protocols.push(Protocol::DyDx)
+                            inspection.protocols.insert(Protocol::DyDx);
                         }
 
                         Some(

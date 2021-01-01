@@ -36,7 +36,7 @@ impl Inspector for ZeroEx {
         for i in 0..inspection.actions.len() {
             let action = &mut inspection.actions[i];
 
-            if let Some(calltrace) = action.to_call() {
+            if let Some(calltrace) = action.as_call() {
                 let call = calltrace.as_ref();
 
                 if let Ok(transfer) = self
@@ -44,15 +44,11 @@ impl Inspector for ZeroEx {
                     .decode::<BridgeTransfer, _>("bridgeTransferFrom", &call.input)
                 {
                     // we found a 0x transaction
-                    if !inspection.protocols.contains(&Protocol::ZeroEx) {
-                        inspection.protocols.push(Protocol::ZeroEx);
-                    }
+                    inspection.protocols.insert(Protocol::ZeroEx);
 
                     // the bridge call will tell us which sub-protocol was used
                     if let Some(protocol) = PROTOCOLS.get(&transfer.1) {
-                        if !inspection.protocols.contains(protocol) {
-                            inspection.protocols.push(*protocol);
-                        }
+                        inspection.protocols.insert(*protocol);
                     }
 
                     // change this to a transfer
@@ -124,7 +120,7 @@ mod tests {
         zeroex.inspect(&mut inspection);
         assert_eq!(
             inspection.protocols,
-            vec![Protocol::ZeroEx, Protocol::Balancer, Protocol::Uniswap]
+            crate::set![Protocol::ZeroEx, Protocol::Balancer, Protocol::Uniswap]
         );
         assert_eq!(inspection.status, Status::Reverted);
         let known = inspection.known();
