@@ -95,7 +95,7 @@ mod tests {
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Aave::new()),
-                Box::new(Curve::new()), // even though the Curve inspector is on, there's no Curve in the found protocols
+                Box::new(Curve::new(vec![])), // even though the Curve inspector is on, there's no Curve in the found protocols
             ],
             vec![
                 // Classify liquidations first
@@ -146,7 +146,7 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
                 Box::new(Balancer::new()),
             ],
             vec![
@@ -181,7 +181,7 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
                 Box::new(Balancer::new()),
             ],
             vec![
@@ -214,7 +214,7 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(TradeReducer::new()),
@@ -251,7 +251,7 @@ mod tests {
                 Box::new(Uniswap::new()),
                 Box::new(Balancer::new()),
                 Box::new(ZeroEx::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(LiquidationReducer::new()),
@@ -281,7 +281,7 @@ mod tests {
                 Box::new(ZeroEx::new()),
                 Box::new(Balancer::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(LiquidationReducer::new()),
@@ -322,7 +322,7 @@ mod tests {
                 Box::new(ZeroEx::new()),
                 Box::new(Balancer::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Curve::new()),
+                Box::new(Curve::new(vec![])),
             ],
             vec![
                 Box::new(LiquidationReducer::new()),

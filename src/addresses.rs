@@ -86,7 +86,7 @@ pub static BALANCER_PROXY: Lazy<Address> =
     Lazy::new(|| parse_address("0x3E66B66Fd1d0b02fDa6C811Da9E0547970DB2f21"));
 
 pub static CURVE_REGISTRY: Lazy<Address> =
-    Lazy::new(|| parse_address("7002B727Ef8F5571Cb5F9D70D13DBEEb4dFAe9d1"));
+    Lazy::new(|| parse_address("0x7D86446dDb609eD0F5f8684AcF30380a356b2B4c"));
 
 pub static CETH: Lazy<Address> =
     Lazy::new(|| parse_address("4Ddc2D193948926D02f9B1fE9e1daa0718270ED5"));
