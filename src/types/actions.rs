@@ -15,12 +15,26 @@ pub enum SpecificAction {
     Trade(Trade),
     Liquidation(Liquidation),
 
+    AddLiquidity(AddLiquidity),
+
     Arbitrage(Arbitrage),
     ProfitableLiquidation(ProfitableLiquidation),
 
     Unclassified(Bytes),
 
     LiquidationCheck,
+}
+
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
+pub struct AddLiquidity {
+    pub tokens: Vec<Address>,
+    pub amounts: Vec<U256>,
+}
+
+impl From<AddLiquidity> for SpecificAction {
+    fn from(src: AddLiquidity) -> Self {
+        SpecificAction::AddLiquidity(src)
+    }
 }
 
 impl SpecificAction {
@@ -77,6 +91,13 @@ impl SpecificAction {
     pub fn profitable_liquidation(&self) -> Option<&ProfitableLiquidation> {
         match self {
             SpecificAction::ProfitableLiquidation(inner) => Some(inner),
+            _ => None,
+        }
+    }
+
+    pub fn add_liquidity(&self) -> Option<&AddLiquidity> {
+        match self {
+            SpecificAction::AddLiquidity(inner) => Some(inner),
             _ => None,
         }
     }

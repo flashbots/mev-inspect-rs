@@ -379,4 +379,47 @@ mod tests {
         assert_eq!(arb.profit.to_string(), "101664758086906735");
         assert_eq!(inspection.status, Status::Reverted);
     }
+
+    #[tokio::test]
+    // This is added to ensure we do not misclassify Zapper txs
+    // https://github.com/flashbots/mev-inspect-ts/issues/14
+    async fn zapper_no_false_positive() {
+        let mut inspection = read_trace("zapper1.json");
+
+        let inspector = BatchInspector::new(
+            vec![Box::new(ERC20::new()), Box::new(Uniswap::new())],
+            vec![
+                Box::new(TradeReducer::new()),
+                Box::new(ArbitrageReducer::new()),
+            ],
+        );
+        inspector.inspect(&mut inspection);
+        inspector.reduce(&mut inspection);
+        inspection.prune();
+
+        // first a trade gets classified
+        let trade = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().trade())
+            .cloned()
+            .unwrap();
+        assert_eq!(trade.t1.amount.to_string(), "1101651860618174754");
+        assert_eq!(trade.t2.amount.to_string(), "3387662");
+
+        // then the addliquidity call gets classified
+        let add_liquidity = inspection
+            .known()
+            .iter()
+            .find_map(|x| x.as_ref().add_liquidity())
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            add_liquidity.amounts,
+            vec![
+                U256::from_dec_str("3387662").unwrap(),
+                U256::from_dec_str("1098348139381825246").unwrap(),
+            ]
+        );
+    }
 }

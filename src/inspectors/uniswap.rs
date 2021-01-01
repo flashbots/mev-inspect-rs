@@ -2,7 +2,10 @@ use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, PROTOCOLS},
     inspectors::find_matching,
     traits::Inspector,
-    types::{actions::Trade, Classification, Inspection, Protocol, Status},
+    types::{
+        actions::{AddLiquidity as AddLiquidityAct, Trade},
+        Classification, Inspection, Protocol, Status,
+    },
 };
 
 use ethers::{abi::Abi, contract::BaseContract};
@@ -15,6 +18,7 @@ use ethers::{
 type SwapTokensFor = (U256, U256, Vec<Address>, Address, U256);
 type SwapEthFor = (U256, Vec<Address>, Address, U256);
 type PairSwap = (U256, U256, Address, Bytes);
+type AddLiquidity = (Address, Address, U256, U256, U256, U256, Address, U256);
 
 #[derive(Debug, Clone)]
 /// An inspector for Uniswap
@@ -37,8 +41,21 @@ impl Inspector for Uniswap {
                 let call = calltrace.as_ref();
                 let preflight = self.is_preflight(call);
 
-                // Direct pair transfers can be parsed immediately here
-                if let Ok((_, _, _, bytes)) = self.pair.decode::<PairSwap, _>("swap", &call.input) {
+                if let Ok((token0, token1, amount0, amount1, _, _, _, _)) = self
+                    .router
+                    .decode::<AddLiquidity, _>("addLiquidity", &call.input)
+                {
+                    let trace_address = calltrace.trace_address.clone();
+                    *action = Classification::new(
+                        AddLiquidityAct {
+                            tokens: vec![token0, token1],
+                            amounts: vec![amount0, amount1],
+                        },
+                        trace_address,
+                    );
+                } else if let Ok((_, _, _, bytes)) =
+                    self.pair.decode::<PairSwap, _>("swap", &call.input)
+                {
                     // add the protocol
                     let protocol = uniswappy(&call);
                     if !inspection.protocols.contains(&protocol) {

@@ -180,6 +180,7 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
         ("0xc00e94cb662c3520282e6f5717214004a7f26888", "COMP"),
         ("0x5d3a536e4d6dbd6114cc1ead35777bab948e3643", "cDAI"),
         ("0x514910771af9ca656af840dff83e8264ecf986ca", "LINK"),
+        ("0x2260fac5e5542a773aa44fbcfedf7c193bc2c599", "WBTC"),
         (
             "0x5dbcf33d8c2e976c6b560249878e6f1491bca25c",
             "yyDAI+yUSDC+yUSDT+yTUSD",
