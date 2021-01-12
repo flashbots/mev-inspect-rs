@@ -79,6 +79,9 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set
 });
 
+pub static ZEROX: Lazy<Address> =
+    Lazy::new(|| parse_address("0x61935cbdd02287b511119ddb11aeb42f1593b7ef"));
+
 pub static DYDX: Lazy<Address> =
     Lazy::new(|| parse_address("0x1e0447b19bb6ecfdae1e4ae1694b0c3659614e4e"));
 

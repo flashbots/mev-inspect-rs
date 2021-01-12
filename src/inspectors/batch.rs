@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            set![Protocol::Sushiswap, Protocol::Curve]
+            set![Protocol::Sushiswap, Protocol::Curve, Protocol::ZeroEx]
         );
     }
 

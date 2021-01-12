@@ -1,5 +1,5 @@
 use crate::{
-    addresses::{DYDX, FILTER},
+    addresses::{DYDX, FILTER, ZEROX},
     types::{
         classification::{ActionTrace, CallTrace},
         Classification, Protocol, Status,
@@ -146,8 +146,12 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
                             inspection.proxy_impl = Some(call.to);
                         }
 
-                        if call.to == *DYDX && !inspection.protocols.contains(&Protocol::DyDx) {
+                        if call.to == *DYDX {
                             inspection.protocols.insert(Protocol::DyDx);
+                        }
+
+                        if call.to == *ZEROX {
+                            inspection.protocols.insert(Protocol::ZeroEx);
                         }
 
                         Some(
