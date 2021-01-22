@@ -4,6 +4,9 @@ use ethers::types::Address;
 
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{self, BufRead};
+use std::path::Path;
 
 pub fn lookup(address: Address) -> String {
     ADDRESSBOOK
@@ -23,6 +26,16 @@ fn insert_many<T: Clone>(
     map
 }
 
+// reads line-separated addresses from a file path and returns them as a vector
+fn read_addrs<P>(path: P) -> Vec<Address>
+where
+    P: AsRef<Path>,
+{
+    let file = File::open(path).unwrap();
+    let lines = io::BufReader::new(file).lines();
+    lines.map(|line| parse_address(&line.unwrap())).collect()
+}
+
 // Protocol Addrs
 pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     let map = HashMap::new();
@@ -39,7 +52,7 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
         Protocol::Uniswap,
     );
 
-    let map = insert_many(
+    let mut map = insert_many(
         map,
         &[
             // sUSD - WETH
@@ -52,10 +65,34 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
         Protocol::Sushiswap,
     );
 
-    let map = insert_many(
-        map,
-        &["0x89ba27e73c929ebef87c9ff4b43052012ea838d9"],
-        Protocol::SakeSwap,
+    for addr in read_addrs("./res/v1pairs.csv") {
+        map.insert(addr, Protocol::UniswapV1);
+    }
+
+    for addr in read_addrs("./res/v2pairs.csv") {
+        map.insert(addr, Protocol::Uniswap);
+    }
+
+    for addr in read_addrs("./res/sushipairs.csv") {
+        map.insert(addr, Protocol::Sushiswap);
+    }
+
+    // uni router 02
+    map.insert(
+        parse_address("7a250d5630B4cF539739dF2C5dAcb4c659F2488D"),
+        Protocol::Uniswap,
+    );
+
+    // uni router 01
+    map.insert(
+        parse_address("f164fC0Ec4E93095b804a4795bBe1e041497b92a"),
+        Protocol::Uniswap,
+    );
+
+    // sushi router
+    map.insert(
+        "d9e1cE17f2641f24aE83637ab66a2cca9C378B9F".parse().unwrap(),
+        Protocol::Sushiswap,
     );
 
     insert_many(

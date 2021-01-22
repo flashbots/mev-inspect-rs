@@ -24,6 +24,7 @@ pub enum Status {
 /// The supported protocols
 pub enum Protocol {
     // Uniswap & Forks
+    UniswapV1,
     Uniswap,
     Uniswappy,
     Sushiswap,
