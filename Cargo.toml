@@ -19,13 +19,10 @@ serde = "1.0.118"
 # postgres connection
 tokio = { version = "1.0.2", features = ["macros", "rt-multi-thread"] }
 tokio-postgres = "0.7.0"
-rust_decimal = { version = "1.9.0", features = ["db-postgres", "db-tokio-postgres"] }
+rust_decimal = { version = "1.10.0", features = ["db-postgres", "db-tokio-postgres"] }
 gumdrop = "0.8.0"
 futures = "0.3.8"
 hex = "0.4.2"
 
 [features]
 postgres-tests = []
-
-[patch.crates-io]
-rust_decimal = { git = "https://github.com/paupino/rust-decimal/", branch = "master" }

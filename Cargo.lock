@@ -1699,8 +1699,9 @@ dependencies = [
 
 [[package]]
 name = "rust_decimal"
-version = "1.9.0"
-source = "git+https://github.com/paupino/rust-decimal/?branch=master#57dacb8a79a15e875fa45df3f5c43fe1de0d837a"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08c3509737f639fad663f7a296c87e364fe462514a07aab699ff44e4328deffc"
 dependencies = [
  "arrayvec",
  "byteorder",
