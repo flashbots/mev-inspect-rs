@@ -330,8 +330,9 @@ pub mod tests {
                 &both,
             ),
             (
+                // sakeswap is uniswappy
                 "0xd9df5ae2e9e18099913559f71473866758df3fd25919be605c71c300e64165fd",
-                &crate::set![Protocol::Uniswap, Protocol::SakeSwap],
+                &crate::set![Protocol::Uniswappy, Protocol::Uniswap],
             ),
             (
                 "0xfd24e512dc90bd1ca8a4f7987be6122c1fa3221b261e8728212f2f4d980ee4cd",
