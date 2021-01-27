@@ -1,6 +1,5 @@
 var Web3 = require('web3');
-require('dotenv-flow').config();
-var web3 = new Web3('wss://fee7372b6e224441b747bf1fde15b2bd.eth.ws.rivet.cloud/');//ws://localhost:8546');
+var web3 = new Web3('ws://localhost:8546');
 
 var fs = require('fs');
 
