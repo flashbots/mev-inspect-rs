@@ -1,0 +1,9 @@
+{
+  "name": "log_fillers",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "web3": "^1.3.3"
+  }
+}
