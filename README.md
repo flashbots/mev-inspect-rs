@@ -9,6 +9,8 @@
 - Uniswap (& clones)
 - Aave
 - Compound
+- 0x
+- DyDx
 
 ## Installing
 
