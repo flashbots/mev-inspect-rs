@@ -19,10 +19,13 @@ pub struct HistoricalPrice<M> {
 }
 
 static DECIMALS: Lazy<HashMap<Address, usize>> = Lazy::new(|| {
-    [("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 6)]
-        .iter()
-        .map(|(addr, decimals)| (parse_address(addr), *decimals))
-        .collect::<HashMap<_, _>>()
+    [
+        ("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", 6),
+        ("0xdac17f958d2ee523a2206206994597c13d831ec7", 6),
+    ]
+    .iter()
+    .map(|(addr, decimals)| (parse_address(addr), *decimals))
+    .collect::<HashMap<_, _>>()
 });
 
 impl<M: Middleware> HistoricalPrice<M> {
@@ -67,7 +70,7 @@ impl<M: Middleware> HistoricalPrice<M> {
 
         debug_assert_eq!(one, amounts[0]);
         debug_assert_eq!(amounts.len(), 2);
-        Ok(amounts[1] * amount / one)
+        Ok(amounts[1] / one * amount)
     }
 }
 
