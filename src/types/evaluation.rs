@@ -1,5 +1,5 @@
 use crate::{
-    types::{actions::SpecificAction, Classification, Inspection},
+    types::{actions::SpecificAction, Inspection, Status},
     HistoricalPrice,
 };
 
@@ -58,63 +58,77 @@ impl Evaluation {
         let mut actions = HashSet::new();
         let mut profit = U256::zero();
         for action in &inspection.actions {
+            // only get the known actions
+            let action = if let Some(action) = action.as_action() {
+                action
+            } else {
+                continue;
+            };
+
+            // set their action type
+            use SpecificAction::*;
             match action {
-                Classification::Known(action) => match action.as_ref() {
-                    SpecificAction::Arbitrage(arb) => {
-                        if arb.profit > 0.into() {
-                            actions.insert(ActionType::Arbitrage);
-                            profit += prices
-                                .quote(arb.token, arb.profit, inspection.block_number)
-                                .await
-                                .map_err(EvalError::Contract)?;
-                        }
-                    }
-                    SpecificAction::Liquidation(liq) => {
-                        let res = futures::future::join(
-                            prices.quote(liq.sent_token, liq.sent_amount, inspection.block_number),
-                            prices.quote(
-                                liq.received_token,
-                                liq.received_amount,
-                                inspection.block_number,
-                            ),
-                        )
-                        .await;
+                Arbitrage(_) => {
+                    actions.insert(ActionType::Arbitrage);
+                }
+                Liquidation(_) | ProfitableLiquidation(_) | LiquidationCheck => {
+                    actions.insert(ActionType::Liquidation);
+                }
+                Trade(_) => {
+                    actions.insert(ActionType::Trade);
+                }
+                _ => {}
+            };
 
-                        match res {
-                            (Ok(amount_in), Ok(amount_out)) => {
-                                profit += amount_out.saturating_sub(amount_in);
-                            }
-                            _ => println!("Could not fetch prices from Uniswap"),
-                        };
+            // dont try to calculate & normalize profits for unsuccessful txs
+            if inspection.status != Status::Success {
+                continue;
+            }
 
-                        if res.0.is_err() {
-                            println!("Sent: {} of token {:?}", liq.sent_amount, liq.sent_token);
-                        }
-
-                        if res.1.is_err() {
-                            println!(
-                                "Received: {} of token {:?}",
-                                liq.received_amount, liq.received_token
-                            );
-                        }
-
-                        actions.insert(ActionType::Liquidation);
-                    }
-                    SpecificAction::LiquidationCheck => {
-                        actions.insert(ActionType::Liquidation);
-                    }
-                    SpecificAction::ProfitableLiquidation(liq) => {
-                        actions.insert(ActionType::Liquidation);
+            match action {
+                SpecificAction::Arbitrage(arb) => {
+                    if arb.profit > 0.into() {
                         profit += prices
-                            .quote(liq.token, liq.profit, inspection.block_number)
+                            .quote(arb.token, arb.profit, inspection.block_number)
                             .await
                             .map_err(EvalError::Contract)?;
                     }
-                    SpecificAction::Trade(_) => {
-                        actions.insert(ActionType::Trade);
+                }
+                SpecificAction::Liquidation(liq) => {
+                    let res = futures::future::join(
+                        prices.quote(liq.sent_token, liq.sent_amount, inspection.block_number),
+                        prices.quote(
+                            liq.received_token,
+                            liq.received_amount,
+                            inspection.block_number,
+                        ),
+                    )
+                    .await;
+
+                    match res {
+                        (Ok(amount_in), Ok(amount_out)) => {
+                            profit += amount_out.saturating_sub(amount_in);
+                        }
+                        _ => println!("Could not fetch prices from Uniswap"),
+                    };
+
+                    if res.0.is_err() {
+                        println!("Sent: {} of token {:?}", liq.sent_amount, liq.sent_token);
                     }
-                    _ => (),
-                },
+
+                    if res.1.is_err() {
+                        println!(
+                            "Received: {} of token {:?}",
+                            liq.received_amount, liq.received_token
+                        );
+                    }
+                }
+                SpecificAction::ProfitableLiquidation(liq) => {
+                    profit += prices
+                        .quote(liq.token, liq.profit, inspection.block_number)
+                        .await
+                        .map_err(EvalError::Contract)?;
+                }
                 _ => (),
             };
         }
