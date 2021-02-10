@@ -95,6 +95,10 @@ impl Evaluation {
                     }
                 }
                 SpecificAction::Liquidation(liq) => {
+                    if liq.sent_amount == U256::MAX - 1 {
+                        eprintln!("U256::max detected in {}, skipping profit calculation", inspection.hash);
+                        continue
+                    }
                     let res = futures::future::join(
                         prices.quote(liq.sent_token, liq.sent_amount, inspection.block_number),
                         prices.quote(
