@@ -111,7 +111,7 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
         };
 
         // Filter out unwanted calls
-        if FILTER.get(&call.to).is_some() {
+        if FILTER.get(&call.from).is_some() || FILTER.get(&call.to).is_some() {
             return Err(());
         }
 
