@@ -132,6 +132,9 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 let tx_hashes: Vec<_> = lines
                     .map(|line| line.unwrap().parse::<TxHash>().unwrap())
                     .collect();
+
+                let stdout = std::io::stdout();
+                let mut lock = stdout.lock();
                 for tx_hash in tx_hashes {
                     let traces = provider.trace_transaction(tx_hash).await?;
                     let inspection = processor.inspect_one(traces).unwrap();
@@ -153,7 +156,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
 
                     db.delete(tx_hash).await?;
                     db.insert(&evaluation).await?;
-                    println!("Corrected {:?}", tx_hash);
+                    writeln!(&mut lock, "Corrected {:?}", tx_hash)?;
                 }
             }
             Command::Tx(opts) => {
