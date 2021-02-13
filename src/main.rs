@@ -47,8 +47,17 @@ struct Opts {
 enum Command {
     #[options(help = "inspect a transaction")]
     Tx(TxOpts),
+    #[options(help = "inspect a vector of txs")]
+    Txs(TxsOpts),
     #[options(help = "inspect a range of blocks")]
     Blocks(BlockOpts),
+}
+
+#[derive(Debug, Options, Clone)]
+struct TxsOpts {
+    help: bool,
+    #[options(free, help = "path to the csv file with all your tx hashes")]
+    path: PathBuf,
 }
 
 #[derive(Debug, Options, Clone)]
@@ -107,7 +116,6 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
     ];
     let processor = BatchInspector::new(inspectors, reducers);
 
-    // TODO: Pass overwrite parameter
     let mut db = MevDB::connect(opts.db_cfg, &opts.db_table).await?;
     db.create().await?;
     if opts.reset {
@@ -117,6 +125,36 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
 
     if let Some(cmd) = opts.cmd {
         match cmd {
+            Command::Txs(opts) => {
+                use std::io::BufRead;
+                let file = std::fs::File::open(opts.path).unwrap();
+                let lines = std::io::BufReader::new(file).lines();
+                let tx_hashes: Vec<_> = lines
+                    .map(|line| line.unwrap().parse::<TxHash>().unwrap())
+                    .collect();
+                for tx_hash in tx_hashes {
+                    let traces = provider.trace_transaction(tx_hash).await?;
+                    let inspection = processor.inspect_one(traces).unwrap();
+                    let gas_used = provider
+                        .get_transaction_receipt(inspection.hash)
+                        .await?
+                        .expect("tx not found")
+                        .gas_used
+                        .unwrap_or_default();
+
+                    let gas_price = provider
+                        .get_transaction(inspection.hash)
+                        .await?
+                        .expect("tx not found")
+                        .gas_price;
+
+                    let evaluation =
+                        Evaluation::new(inspection, &prices, gas_used, gas_price).await?;
+
+                    db.delete(tx_hash).await?;
+                    db.insert(&evaluation).await?;
+                }
+            }
             Command::Tx(opts) => {
                 let traces = provider.trace_transaction(opts.tx).await?;
                 if let Some(inspection) = processor.inspect_one(traces) {

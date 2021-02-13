@@ -22,12 +22,10 @@ impl<'a> MevDB<'a> {
             }
         });
 
-        // TODO: Allow overwriting on conflict
-        let overwrite = "on conflict do nothing";
         Ok(Self {
             client,
             table_name,
-            overwrite: overwrite.to_owned(),
+            overwrite: "on conflict do nothing".to_owned(),
         })
     }
 
@@ -104,6 +102,18 @@ impl<'a> MevDB<'a> {
         Ok(())
     }
 
+    /// Deletes an old entry
+    pub async fn delete(&mut self, hash: TxHash) -> Result<(), DbError> {
+        self.client
+            .execute(
+                format!("DELETE FROM {} where hash = '{:?}'", &self.table_name, hash).as_str(),
+                &[],
+            )
+            .await?;
+
+        Ok(())
+    }
+
     /// Checks if the transaction hash is already inspected
     pub async fn exists(&mut self, hash: TxHash) -> Result<bool, DbError> {
         let rows = self
@@ -172,7 +182,7 @@ fn u256_decimal(src: U256) -> Result<Decimal, rust_decimal::Error> {
     Decimal::from_str(&src.to_string())
 }
 
-#[cfg(all(test, feature = "postgres-tests"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::evaluation::ActionType;
@@ -182,16 +192,17 @@ mod tests {
 
     #[tokio::test]
     async fn insert_eval() {
-        let mut client = MevDB::connect("localhost", "postgres", None, "test_table")
-            .await
-            .unwrap();
+        let mut cfg = Config::new();
+        cfg.host("127.0.0.1");
+        cfg.user("postgres");
+        let mut client = MevDB::connect(cfg, "test_table").await.unwrap();
         client.clear().await.unwrap();
         client.create().await.unwrap();
 
         let inspection = Inspection {
             status: crate::types::Status::Checked,
             actions: Vec::new(),
-            protocols: Vec::new(),
+            protocols: std::collections::HashSet::new(),
             from: Address::zero(),
             contract: Address::zero(),
             proxy_impl: None,
@@ -216,5 +227,9 @@ mod tests {
 
         // conflicts get ignored
         client.insert(&evaluation).await.unwrap();
+
+        // can delete
+        client.delete(evaluation.inspection.hash).await.unwrap();
+        assert!(!client.exists(evaluation.as_ref().hash).await.unwrap());
     }
 }
