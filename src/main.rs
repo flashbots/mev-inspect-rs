@@ -153,6 +153,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
 
                     db.delete(tx_hash).await?;
                     db.insert(&evaluation).await?;
+                    println!("Corrected {:?}", tx_hash);
                 }
             }
             Command::Tx(opts) => {
