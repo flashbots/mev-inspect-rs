@@ -137,7 +137,10 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 let mut lock = stdout.lock();
                 for tx_hash in tx_hashes {
                     let traces = provider.trace_transaction(tx_hash).await?;
-                    let inspection = processor.inspect_one(traces).unwrap();
+                    let inspection = match processor.inspect_one(traces) {
+                        Some(inspection) => inspection,
+                        None => continue,
+                    };
                     let gas_used = provider
                         .get_transaction_receipt(inspection.hash)
                         .await?
