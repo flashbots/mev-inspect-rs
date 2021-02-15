@@ -134,25 +134,64 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                     .collect();
 
                 let stdout = std::io::stdout();
+                let stderr = std::io::stderr();
                 let mut lock = stdout.lock();
+                let mut errlock = stderr.lock();
                 for tx_hash in tx_hashes {
-                    let traces = provider.trace_transaction(tx_hash).await?;
+                    let traces = match provider.trace_transaction(tx_hash).await {
+                        Ok(inner) => inner,
+                        Err(err) => {
+                            writeln!(
+                                &mut errlock,
+                                "Could not trace tx for {:?}. Err {:?}",
+                                tx_hash, err
+                            )?;
+                            continue;
+                        }
+                    };
+
                     let inspection = match processor.inspect_one(traces) {
                         Some(inspection) => inspection,
                         None => continue,
                     };
-                    let gas_used = provider
-                        .get_transaction_receipt(inspection.hash)
-                        .await?
-                        .expect("tx not found")
-                        .gas_used
-                        .unwrap_or_default();
 
-                    let gas_price = provider
-                        .get_transaction(inspection.hash)
-                        .await?
-                        .expect("tx not found")
-                        .gas_price;
+                    let receipt = match provider.get_transaction_receipt(inspection.hash).await {
+                        Ok(inner) => match inner {
+                            Some(inner) => inner,
+                            None => {
+                                writeln!(&mut errlock, "Tx {:?} not found", tx_hash)?;
+                                continue;
+                            }
+                        },
+                        Err(err) => {
+                            writeln!(
+                                &mut errlock,
+                                "Could not get tx receipt for {:?}. Err {:?}",
+                                tx_hash, err
+                            )?;
+                            continue;
+                        }
+                    };
+                    let gas_used = receipt.gas_used.unwrap_or_default();
+
+                    let tx = match provider.get_transaction(inspection.hash).await {
+                        Ok(inner) => match inner {
+                            Some(inner) => inner,
+                            None => {
+                                writeln!(&mut errlock, "Tx {:?} not found", tx_hash)?;
+                                continue;
+                            }
+                        },
+                        Err(err) => {
+                            writeln!(
+                                &mut errlock,
+                                "Could not get tx {:?}. Err {:?}",
+                                tx_hash, err
+                            )?;
+                            continue;
+                        }
+                    };
+                    let gas_price = tx.gas_price;
 
                     let evaluation =
                         Evaluation::new(inspection, &prices, gas_used, gas_price).await?;
