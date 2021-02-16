@@ -121,6 +121,8 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0x804cc8d469483d202c69752ce0304f71ae14abdf"));
      // Metamask Swap
     set.insert(parse_address("0x881d40237659c251811cec9c364ef91dc08d300c"));
+    // DEX.ag
+    set.insert(parse_address("0x745daa146934b27e3f0b6bff1a6e36b9b90fb131"));
     set
 });
 
