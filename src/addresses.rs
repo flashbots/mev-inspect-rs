@@ -119,6 +119,8 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0xc66d62a2f9ff853d9721ec94fa17d469b40dde8d"));
     // Rootkit finance deployer
     set.insert(parse_address("0x804cc8d469483d202c69752ce0304f71ae14abdf"));
+    // MetaMask Swap Router
+    set.insert(parse_address("0xc67ae5361c699d9cead776f844b0aae5927afe98e800076d192f2aff9685ee43 "));
     set
 });
 
