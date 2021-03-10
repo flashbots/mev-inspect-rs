@@ -113,6 +113,8 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0x9509665d015bfe3c77aa5ad6ca20c8afa1d98989"));
     // paraswap v2
     set.insert(parse_address("0x86969d29F5fd327E1009bA66072BE22DB6017cC6"));
+     // Paraswap v3
+    set.insert(parse_address("0xf90e98f3d8dce44632e5020abf2e122e0f99dfab"));    
     // furucombo
     set.insert(parse_address("0x57805e5a227937bac2b0fdacaa30413ddac6b8e1"));
     // yearn recycler
@@ -125,6 +127,12 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0x881d40237659c251811cec9c364ef91dc08d300c"));
     // DEX.ag
     set.insert(parse_address("0x745daa146934b27e3f0b6bff1a6e36b9b90fb131"));
+     // Cream Finance deployer
+    set.insert(parse_address("0x197939c1ca20c2b506d6811d8b6cdb3394471074"));
+     // Zerion SDK
+    set.insert(parse_address("0xb2be281e8b11b47fec825973fc8bb95332022a54"));  
+     // KeeperDAO
+    set.insert(parse_address("0x3d71d79c224998e608d03c5ec9b405e7a38505f0")); 
     set
 });
 
