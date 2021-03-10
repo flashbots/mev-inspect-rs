@@ -117,6 +117,8 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0xf90e98f3d8dce44632e5020abf2e122e0f99dfab"));    
     // furucombo
     set.insert(parse_address("0x57805e5a227937bac2b0fdacaa30413ddac6b8e1"));
+    // furucombo proxy v1
+    set.insert(parse_address("0x17e8ca1b4798b97602895f63206afcd1fc90ca5f"));  
     // yearn recycler
     set.insert(parse_address("0x5F07257145fDd889c6E318F99828E68A449A5c7A"));
     // drc, weird deflationary token
