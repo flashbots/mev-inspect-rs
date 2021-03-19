@@ -109,8 +109,6 @@ mod tests {
 
         let known = inspection.known();
 
-        dbg!(&known);
-
         let liquidation = known
             .iter()
             .find_map(|action| action.as_ref().profitable_liquidation())
@@ -263,7 +261,7 @@ mod tests {
         inspection.prune();
 
         let known = inspection.known();
-        dbg!(&known);
+
         assert_eq!(inspection.status, Status::Reverted);
         assert_eq!(inspection.protocols, set![Protocol::Uniswap])
     }

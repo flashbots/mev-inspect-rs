@@ -154,7 +154,7 @@ mod tests {
         bal.inspect(&mut inspection);
 
         let known = inspection.known();
-        dbg!(&known);
+
         assert_eq!(known.len(), 4);
         let t1 = known[0].as_ref().transfer().unwrap();
         assert_eq!(
@@ -177,7 +177,7 @@ mod tests {
         bal.inspect(&mut inspection);
 
         let known = inspection.known();
-        dbg!(&known);
+
         assert_eq!(known.len(), 3);
         let trade = known[0].as_ref().trade().unwrap();
         assert_eq!(
