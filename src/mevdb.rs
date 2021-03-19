@@ -5,15 +5,15 @@ use thiserror::Error;
 use tokio_postgres::{config::Config, Client, NoTls};
 
 /// Wrapper around PostGres for storing results in the database
-pub struct MevDB<'a> {
+pub struct MevDB {
     client: Client,
-    table_name: &'a str,
+    table_name: String,
     overwrite: String,
 }
 
-impl<'a> MevDB<'a> {
+impl MevDB {
     /// Connects to the MEV PostGres instance
-    pub async fn connect(cfg: Config, table_name: &'a str) -> Result<MevDB<'a>, DbError> {
+    pub async fn connect(cfg: Config, table_name: impl Into<String>) -> Result<Self, DbError> {
         let (client, connection) = cfg.connect(NoTls).await?;
 
         tokio::spawn(async move {
@@ -26,7 +26,7 @@ impl<'a> MevDB<'a> {
         let overwrite = "on conflict do nothing";
         Ok(Self {
             client,
-            table_name,
+            table_name: table_name.into(),
             overwrite: overwrite.to_owned(),
         })
     }

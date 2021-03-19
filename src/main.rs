@@ -192,7 +192,7 @@ async fn process_block<M: Middleware + 'static>(
     block_number: u64,
     provider: &M,
     processor: &BatchInspector,
-    db: &mut MevDB<'_>,
+    db: &mut MevDB,
     prices: &HistoricalPrice<M>,
 ) -> anyhow::Result<()> {
     let block_number = block_number.into();
