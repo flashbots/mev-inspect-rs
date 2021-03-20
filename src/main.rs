@@ -147,22 +147,23 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 }
             }
             Command::Blocks(inner) => {
-                let t1 = std::time::Instant::now();
-                let stdout = std::io::stdout();
-                let mut lock = stdout.lock();
-                for block in inner.from..inner.to {
-                    // TODO: Can we do the block processing in parallel? Theoretically
-                    // it should be possible
-                    process_block(&mut lock, block, &provider, &processor, &mut db, &prices)
-                        .await?;
-                }
-                drop(lock);
+                let mut evals = processor
+                    .evaluate_blocks(&provider, &prices, inner.from..inner.to, 10)
+                    .insert_all(db);
 
-                println!(
-                    "Processed {} blocks in {:?}",
-                    inner.to - inner.from,
-                    std::time::Instant::now().duration_since(t1)
-                );
+                while let Some(res) = evals.next().await {
+                    match res {
+                        Ok(eval) => {
+                            println!(
+                                "Inserted tx 0x{} in block {}",
+                                eval.inspection.hash, eval.inspection.block_number,
+                            );
+                        }
+                        Err(err) => {
+                            eprintln!("{:?}", err)
+                        }
+                    }
+                }
             }
         };
     } else {
