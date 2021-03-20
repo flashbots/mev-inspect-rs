@@ -172,11 +172,16 @@ type EvalInsertion = Pin<Box<dyn Future<Output = Result<(Evaluation, MevDB), (Me
 type EvaluationStream<'a, M> =
     Pin<Box<dyn Stream<Item = Result<Evaluation, BatchEvaluationError<M>>> + 'a>>;
 
+/// Takes a stream of `Evaluation`s and puts it in the database
 pub struct BatchInserter<'a, M: Middleware + Unpin + 'static> {
     mev_db: Option<MevDB>,
+    /// The currently running insert job
     insertion: Option<EvalInsertion>,
+    /// `Evaluation`s ready to insert
     insertion_queue: VecDeque<Evaluation>,
+    /// All the evaluations to insert
     pending_evaluations: EvaluationStream<'a, M>,
+    /// Whether no more evaluations are coming
     evals_done: bool,
 }
 
@@ -262,6 +267,12 @@ impl<'a, M: Middleware + Unpin> Stream for BatchInserter<'a, M> {
         } else {
             Poll::Pending
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let insertions = self.insertion_queue.len() + self.insertion.is_some() as usize;
+        let (evals, _) = self.pending_evaluations.size_hint();
+        (insertions + evals, None)
     }
 }
 
