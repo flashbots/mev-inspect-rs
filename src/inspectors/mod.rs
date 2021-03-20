@@ -26,7 +26,7 @@ pub use erc20::ERC20;
 
 mod batch;
 /// Takes multiple inspectors
-pub use batch::BatchInspector;
+pub use batch::{BatchEvaluationError, BatchInspector};
 
 mod compound;
 pub use compound::Compound;

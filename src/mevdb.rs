@@ -1,6 +1,12 @@
+use crate::inspectors::BatchEvaluationError;
 use crate::types::Evaluation;
+use ethers::prelude::Middleware;
 use ethers::types::{TxHash, U256};
+use futures::{Future, FutureExt, Stream, StreamExt};
 use rust_decimal::prelude::*;
+use std::collections::VecDeque;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use thiserror::Error;
 use tokio_postgres::{config::Config, Client, NoTls};
 
@@ -159,6 +165,124 @@ pub enum DbError {
 
     #[error(transparent)]
     TokioPostGres(#[from] tokio_postgres::Error),
+}
+
+type EvalInsertion = Pin<Box<dyn Future<Output = Result<(Evaluation, MevDB), (MevDB, DbError)>>>>;
+
+type EvaluationStream<'a, M> =
+    Pin<Box<dyn Stream<Item = Result<Evaluation, BatchEvaluationError<M>>> + 'a>>;
+
+pub struct BatchInserter<'a, M: Middleware + Unpin + 'static> {
+    mev_db: Option<MevDB>,
+    insertion: Option<EvalInsertion>,
+    insertion_queue: VecDeque<Evaluation>,
+    pending_evaluations: EvaluationStream<'a, M>,
+    evals_done: bool,
+}
+
+impl<'a, M: Middleware + Unpin + 'static> BatchInserter<'a, M> {
+    pub fn new<S>(mev_db: MevDB, evals: S) -> Self
+    where
+        S: Stream<Item = Result<Evaluation, BatchEvaluationError<M>>> + 'a,
+    {
+        Self {
+            mev_db: Some(mev_db),
+            insertion: None,
+            insertion_queue: VecDeque::new(),
+            pending_evaluations: Box::pin(evals),
+            evals_done: false,
+        }
+    }
+
+    /// Returns the database again
+    ///
+    /// If the DB is currently busy, this waits until the last job is completed
+    pub async fn get_database(mut self) -> MevDB {
+        if let Some(db) = self.mev_db.take() {
+            db
+        } else {
+            match self.insertion.expect("DB is busy when not idle").await {
+                Ok((_, db)) => db,
+                Err((db, _)) => db,
+            }
+        }
+    }
+}
+
+impl<'a, M: Middleware + Unpin> Stream for BatchInserter<'a, M> {
+    type Item = Result<Evaluation, InsertEvaluationError<M>>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        // complete the insertion task
+        if let Some(mut job) = this.insertion.take() {
+            match job.poll_unpin(cx) {
+                Poll::Ready(Ok((eval, db))) => {
+                    this.mev_db = Some(db);
+                    return Poll::Ready(Some(Ok(eval)));
+                }
+                Poll::Ready(Err((db, err))) => {
+                    this.mev_db = Some(db);
+                    return Poll::Ready(Some(Err(err.into())));
+                }
+                Poll::Pending => {
+                    this.insertion = Some(job);
+                }
+            }
+        }
+
+        // start a new insert if ready
+        if let Some(db) = this.mev_db.take() {
+            if let Some(next) = this.insertion_queue.pop_front() {
+                this.insertion = Some(Box::pin(insert_evaluation(next, db)));
+            } else {
+                this.mev_db = Some(db);
+            }
+        }
+
+        // queue in all evaluations
+        loop {
+            match this.pending_evaluations.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(eval))) => {
+                    this.insertion_queue.push_back(eval);
+                }
+                Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err.into()))),
+                Poll::Ready(None) => {
+                    this.evals_done = true;
+                    break;
+                }
+                Poll::Pending => break,
+            }
+        }
+
+        // If more evaluations and insertions are processed we're not done yet
+        if this.evals_done && this.insertion_queue.is_empty() && this.insertion.is_none() {
+            Poll::Ready(None)
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+async fn insert_evaluation(
+    eval: Evaluation,
+    mut db: MevDB,
+) -> Result<(Evaluation, MevDB), (MevDB, DbError)> {
+    if let Err(err) = db.insert(&eval).await {
+        Err((db, err))
+    } else {
+        Ok((eval, db))
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum InsertEvaluationError<M: Middleware + 'static> {
+    #[error(transparent)]
+    DbError(#[from] DbError),
+
+    #[error(transparent)]
+    BatchEvaluationError(#[from] BatchEvaluationError<M>),
 }
 
 // helpers
