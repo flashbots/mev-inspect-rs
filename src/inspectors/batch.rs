@@ -120,9 +120,7 @@ async fn get_block_info<M: Middleware + Unpin + 'static>(
             error,
         })
         .and_then(|block| {
-            futures::future::ready(
-                block.ok_or_else(|| BatchEvaluationError::NotFound(block_number)),
-            )
+            futures::future::ready(block.ok_or(BatchEvaluationError::NotFound(block_number)))
         });
 
     let receipts = provider
@@ -197,7 +195,7 @@ impl<M: Middleware + Unpin + 'static> BatchEvaluator<M> {
 
     fn queue_in_evaluation(&mut self, inspection: Inspection, gas_used: U256, gas_price: U256) {
         let block_number = inspection.block_number;
-        let hash = inspection.hash.clone();
+        let hash = inspection.hash;
         let prices = Arc::clone(&self.prices);
         let eval = Box::pin(async move {
             Evaluation::new(inspection, prices.as_ref(), gas_used, gas_price)
