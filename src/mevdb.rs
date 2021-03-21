@@ -180,18 +180,22 @@ mod tests {
     use ethers::types::{Address, TxHash};
     use std::collections::HashSet;
 
+    /// This expects postgres running on localhost:5432 with user `mev_rs_user` and table `mev_inspections_test`
     #[tokio::test]
     async fn insert_eval() {
-        let mut client = MevDB::connect("localhost", "postgres", None, "test_table")
-            .await
-            .unwrap();
-        client.clear().await.unwrap();
+        let mut config = Config::default();
+        config
+            .host("localhost")
+            .user("mev_rs_user")
+            .dbname("mev_inspections_test");
+        let mut client = MevDB::connect(config, "mev_inspections").await.unwrap();
+        let _ = client.clear().await;
         client.create().await.unwrap();
 
         let inspection = Inspection {
             status: crate::types::Status::Checked,
             actions: Vec::new(),
-            protocols: Vec::new(),
+            protocols: HashSet::new(),
             from: Address::zero(),
             contract: Address::zero(),
             proxy_impl: None,

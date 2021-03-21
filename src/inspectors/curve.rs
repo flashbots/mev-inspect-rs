@@ -155,7 +155,7 @@ mod tests {
                 .unwrap();
         let curve = Curve::create(std::sync::Arc::new(provider)).await.unwrap();
 
-        assert_eq!(curve.pools.len(), 30);
+        assert!(!curve.pools.is_empty());
     }
 
     struct MyInspector {

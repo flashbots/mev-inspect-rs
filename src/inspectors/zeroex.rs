@@ -124,7 +124,6 @@ mod tests {
         );
         assert_eq!(inspection.status, Status::Reverted);
         let known = inspection.known();
-        dbg!(&known);
 
         assert_eq!(known.len(), 3);
         // transfer in

@@ -279,7 +279,7 @@ pub mod tests {
             uni.inspect(&mut inspection);
 
             let known = inspection.known();
-            dbg!(&known);
+
             assert!(known[0].as_ref().deposit().is_some());
             let arb = known[1].as_ref().arbitrage().unwrap();
             assert_eq!(arb.profit, U256::from_dec_str("23939671034095067").unwrap());
@@ -296,7 +296,7 @@ pub mod tests {
             uni.inspect(&mut inspection);
 
             let known = inspection.known();
-            dbg!(&known);
+
             let arb = known[0].as_ref().arbitrage().unwrap();
             assert_eq!(arb.profit, U256::from_dec_str("9196963592118237").unwrap());
 
@@ -379,7 +379,7 @@ pub mod tests {
         uni.inspect(&mut inspection);
 
         let known = inspection.known();
-        dbg!(&known);
+
         assert_eq!(known.len(), 4);
         let t1 = known[0].as_ref().transfer().unwrap();
         assert_eq!(
@@ -449,7 +449,6 @@ pub mod tests {
             assert_eq!(inspection.known().len(), 3);
             assert_eq!(inspection.unknown().len(), 2);
 
-            dbg!(&known);
             let withdrawal = known[1].as_ref().withdrawal();
             assert!(withdrawal.is_some());
 
