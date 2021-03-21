@@ -2,7 +2,7 @@ use mev_inspect::{
     inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
-    BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
+    BatchInserts, BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
 };
 
 use ethers::{
@@ -10,6 +10,7 @@ use ethers::{
     types::{BlockNumber, TxHash, U256},
 };
 
+use futures::SinkExt;
 use gumdrop::Options;
 use std::io::Write;
 use std::{collections::HashMap, convert::TryFrom, path::PathBuf, sync::Arc};
@@ -64,6 +65,8 @@ struct BlockOpts {
     from: u64,
     #[options(help = "the block to finish tracing at")]
     to: u64,
+    #[options(default = "4", help = "How many separate tasks to use")]
+    tasks: u64,
 }
 
 #[tokio::main]
@@ -87,7 +90,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
 
     let compound = Compound::create(provider.clone()).await?;
     let curve = Curve::create(provider.clone()).await?;
-    let inspectors: Vec<Box<dyn Inspector>> = vec![
+    let inspectors: Vec<Box<dyn Inspector + Send + Sync>> = vec![
         // Classify Transfers
         Box::new(ZeroEx::new()),
         Box::new(ERC20::new()),
@@ -100,7 +103,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
         Box::new(compound),
     ];
 
-    let reducers: Vec<Box<dyn Reducer>> = vec![
+    let reducers: Vec<Box<dyn Reducer + Send + Sync>> = vec![
         Box::new(LiquidationReducer::new()),
         Box::new(TradeReducer::new()),
         Box::new(ArbitrageReducer::new()),
@@ -147,11 +150,60 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 }
             }
             Command::Blocks(inner) => {
-                let mut evals = processor
-                    .evaluate_blocks(&provider, &prices, inner.from..inner.to, 10)
-                    .insert_all(db);
+                let provider = Arc::new(provider);
+                let processor = Arc::new(processor);
+                let prices = Arc::new(prices);
 
-                while let Some(res) = evals.next().await {
+                let (tx, recv) = futures::channel::mpsc::unbounded();
+
+                // divide the bloccks to process equally onto all the tasks
+                let mut num_tasks = inner.tasks as usize;
+                let block_num = inner.to - inner.from;
+                let blocks_per_task = block_num.max(inner.tasks) / inner.tasks;
+                let rem = block_num % inner.tasks;
+
+                if rem > 0 {
+                    let rem_start = inner.to - rem - blocks_per_task;
+                    let processor = Arc::clone(&processor);
+                    let eval_stream = processor.evaluate_blocks(
+                        Arc::clone(&provider),
+                        Arc::clone(&prices),
+                        rem_start..inner.to,
+                        10,
+                    );
+                    let mut tx = tx.clone();
+                    tokio::task::spawn(async move {
+                        // wrap in an ok because send_all only sends Result::Ok
+                        let mut iter = eval_stream.map(Ok);
+                        let _ = tx.send_all(&mut iter).await;
+                    });
+
+                    num_tasks -= 1;
+                };
+
+                for from in (inner.from..inner.to)
+                    .into_iter()
+                    .step_by(blocks_per_task as usize)
+                    .take(num_tasks as usize)
+                {
+                    let processor = Arc::clone(&processor);
+                    let eval_stream = processor.evaluate_blocks(
+                        Arc::clone(&provider),
+                        Arc::clone(&prices),
+                        from..from + blocks_per_task,
+                        10,
+                    );
+                    let mut tx = tx.clone();
+                    tokio::task::spawn(async move {
+                        // wrap in an ok because send_all only sends Result::Ok
+                        let mut iter = eval_stream.map(Ok);
+                        let _ = tx.send_all(&mut iter).await;
+                    });
+                }
+
+                // all the evaluations arrive at the receiver and are inserted into the DB
+                let mut inserts = BatchInserts::new(db, recv);
+                while let Some(res) = inserts.next().await {
                     match res {
                         Ok(eval) => {
                             println!(

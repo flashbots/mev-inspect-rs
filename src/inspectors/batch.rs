@@ -13,22 +13,26 @@ use futures::{
 use itertools::Itertools;
 use thiserror::Error;
 
-use crate::mevdb::BatchInserter;
+use crate::mevdb::BatchInserts;
 use crate::types::{EvalError, Evaluation};
 use crate::{
     types::inspection::{Inspection, TraceWrapper},
     HistoricalPrice, Inspector, MevDB, Reducer,
 };
+use std::sync::Arc;
 
 /// Classifies traces according to the provided inspectors
 pub struct BatchInspector {
-    inspectors: Vec<Box<dyn Inspector>>,
-    reducers: Vec<Box<dyn Reducer>>,
+    inspectors: Vec<Box<dyn Inspector + Send + Sync>>,
+    reducers: Vec<Box<dyn Reducer + Send + Sync>>,
 }
 
 impl BatchInspector {
     /// Constructor
-    pub fn new(inspectors: Vec<Box<dyn Inspector>>, reducers: Vec<Box<dyn Reducer>>) -> Self {
+    pub fn new(
+        inspectors: Vec<Box<dyn Inspector + Send + Sync>>,
+        reducers: Vec<Box<dyn Reducer + Send + Sync>>,
+    ) -> Self {
         Self {
             inspectors,
             reducers,
@@ -86,20 +90,20 @@ impl BatchInspector {
     ///
     /// No more than `max` evaluations will be buffered at
     /// any point in time.
-    pub fn evaluate_blocks<'a: 'b, 'b, M: Middleware + Unpin + 'static>(
-        &'b self,
-        provider: &'a M,
-        prices: &'b HistoricalPrice<M>,
+    pub fn evaluate_blocks<M: Middleware + Unpin + 'static>(
+        self: Arc<Self>,
+        provider: Arc<M>,
+        prices: Arc<HistoricalPrice<M>>,
         blocks: Range<u64>,
         max: usize,
-    ) -> BatchEvaluator<'a, 'b, M> {
-        BatchEvaluator::new(&self, provider, prices, blocks, max)
+    ) -> BatchEvaluator<M> {
+        BatchEvaluator::new(self, provider, prices, blocks, max)
     }
 }
 
 /// Get the necessary information for processing a block
 async fn get_block_info<M: Middleware + Unpin + 'static>(
-    provider: &M,
+    provider: Arc<M>,
     block_number: u64,
 ) -> Result<(Vec<Trace>, Block<Transaction>, Vec<TransactionReceipt>), BatchEvaluationError<M>> {
     let traces = provider
@@ -131,26 +135,26 @@ async fn get_block_info<M: Middleware + Unpin + 'static>(
     futures::try_join!(traces, block, receipts)
 }
 
-type BlockStream<'a, T> = Pin<
+type BlockStream<T> = Pin<
     Box<
         dyn Stream<
                 Item = Result<
                     (Vec<Trace>, Block<Transaction>, Vec<TransactionReceipt>),
                     BatchEvaluationError<T>,
                 >,
-            > + 'a,
+            > + Send,
     >,
 >;
 
-type EvaluationResult<'a, T> =
-    Pin<Box<dyn Future<Output = Result<Evaluation, BatchEvaluationError<T>>> + 'a>>;
+type EvaluationResult<T> =
+    Pin<Box<dyn Future<Output = Result<Evaluation, BatchEvaluationError<T>>> + Send>>;
 
-pub struct BatchEvaluator<'a: 'b, 'b, M: Middleware + 'static> {
-    prices: &'b HistoricalPrice<M>,
-    inspector: &'b BatchInspector,
-    block_infos: BlockStream<'a, M>,
+pub struct BatchEvaluator<M: Middleware + 'static> {
+    prices: Arc<HistoricalPrice<M>>,
+    inspector: Arc<BatchInspector>,
+    block_infos: BlockStream<M>,
     /// Evaluations that currently ongoing
-    evaluations_queue: FuturesUnordered<EvaluationResult<'b, M>>,
+    evaluations_queue: FuturesUnordered<EvaluationResult<M>>,
     /// `(Inspection, gas_used, gas_price)` waiting to be evaluated
     waiting_inspections: VecDeque<(Inspection, U256, U256)>,
     /// maximum allowed buffered futures
@@ -159,21 +163,22 @@ pub struct BatchEvaluator<'a: 'b, 'b, M: Middleware + 'static> {
     blocks_done: bool,
 }
 
-impl<'a: 'b, 'b, M: Middleware + Unpin + 'static> BatchEvaluator<'a, 'b, M> {
+impl<M: Middleware + Unpin + 'static> BatchEvaluator<M> {
     fn new(
-        inspector: &'b BatchInspector,
-        provider: &'a M,
-        prices: &'b HistoricalPrice<M>,
+        inspector: Arc<BatchInspector>,
+        provider: Arc<M>,
+        prices: Arc<HistoricalPrice<M>>,
         blocks: Range<u64>,
         max: usize,
     ) -> Self {
         let block_infos = stream::iter(
             blocks
                 .into_iter()
-                .map(|block_number| get_block_info(provider, block_number))
+                .map(|block_number| get_block_info(Arc::clone(&provider), block_number))
                 .collect::<Vec<_>>(),
         )
         .buffer_unordered(max);
+
         Self {
             prices,
             inspector,
@@ -186,26 +191,28 @@ impl<'a: 'b, 'b, M: Middleware + Unpin + 'static> BatchEvaluator<'a, 'b, M> {
     }
 
     /// Turn this stream into a `BatchInserter` that inserts all the `Evaluation`s
-    pub fn insert_all(self, mev_db: MevDB) -> BatchInserter<'b, M> {
-        BatchInserter::new(mev_db, self)
+    pub fn insert_all<'a>(self, mev_db: MevDB) -> BatchInserts<'a, M> {
+        BatchInserts::new(mev_db, self)
     }
 
     fn queue_in_evaluation(&mut self, inspection: Inspection, gas_used: U256, gas_price: U256) {
         let block_number = inspection.block_number;
         let hash = inspection.hash.clone();
-        let eval =
-            Evaluation::new(inspection, self.prices, gas_used, gas_price).map_err(move |error| {
-                BatchEvaluationError::Evaluation {
+        let prices = Arc::clone(&self.prices);
+        let eval = Box::pin(async move {
+            Evaluation::new(inspection, prices.as_ref(), gas_used, gas_price)
+                .map_err(move |error| BatchEvaluationError::Evaluation {
                     block_number,
                     hash,
                     error,
-                }
-            });
-        self.evaluations_queue.push(Box::pin(eval));
+                })
+                .await
+        });
+        self.evaluations_queue.push(eval);
     }
 }
 
-impl<'a: 'b, 'b, M: Middleware + Unpin + 'static> Stream for BatchEvaluator<'a, 'b, M> {
+impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
     type Item = Result<Evaluation, BatchEvaluationError<M>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

@@ -173,7 +173,7 @@ type EvaluationStream<'a, M> =
     Pin<Box<dyn Stream<Item = Result<Evaluation, BatchEvaluationError<M>>> + 'a>>;
 
 /// Takes a stream of `Evaluation`s and puts it in the database
-pub struct BatchInserter<'a, M: Middleware + Unpin + 'static> {
+pub struct BatchInserts<'a, M: Middleware + Unpin + 'static> {
     mev_db: Option<MevDB>,
     /// The currently running insert job
     insertion: Option<EvalInsertion>,
@@ -185,7 +185,7 @@ pub struct BatchInserter<'a, M: Middleware + Unpin + 'static> {
     evals_done: bool,
 }
 
-impl<'a, M: Middleware + Unpin + 'static> BatchInserter<'a, M> {
+impl<'a, M: Middleware + Unpin + 'static> BatchInserts<'a, M> {
     pub fn new<S>(mev_db: MevDB, evals: S) -> Self
     where
         S: Stream<Item = Result<Evaluation, BatchEvaluationError<M>>> + 'a,
@@ -214,7 +214,7 @@ impl<'a, M: Middleware + Unpin + 'static> BatchInserter<'a, M> {
     }
 }
 
-impl<'a, M: Middleware + Unpin> Stream for BatchInserter<'a, M> {
+impl<'a, M: Middleware + Unpin> Stream for BatchInserts<'a, M> {
     type Item = Result<Evaluation, InsertEvaluationError<M>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
