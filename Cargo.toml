@@ -23,6 +23,8 @@ rust_decimal = { version = "1.10.0", features = ["db-postgres", "db-tokio-postgr
 gumdrop = "0.8.0"
 futures = "0.3.8"
 hex = "0.4.2"
+log = "0.4.14"
+pretty_env_logger = "0.4.0"
 
 [features]
 postgres-tests = []

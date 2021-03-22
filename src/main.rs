@@ -71,6 +71,7 @@ struct BlockOpts {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    pretty_env_logger::init();
     let opts = Opts::parse_args_default_or_exit();
 
     // Instantiate the provider and read from the cached files if needed
@@ -117,6 +118,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
         db.clear().await?;
         db.create().await?;
     }
+    log::debug!("created mevdb table");
 
     if let Some(cmd) = opts.cmd {
         match cmd {
@@ -150,13 +152,15 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 }
             }
             Command::Blocks(inner) => {
+                log::debug!("command blocks {:?}", inner);
                 let provider = Arc::new(provider);
                 let processor = Arc::new(processor);
                 let prices = Arc::new(prices);
 
-                let (tx, recv) = futures::channel::mpsc::unbounded();
+                let (tx, rx) = futures::channel::mpsc::unbounded();
 
-                // divide the bloccks to process equally onto all the tasks
+                // divide the bloccs to process equally onto all the tasks
+                assert!(inner.from < inner.to);
                 let mut num_tasks = inner.tasks as usize;
                 let block_num = inner.to - inner.from;
                 let blocks_per_task = block_num.max(inner.tasks) / inner.tasks;
@@ -172,6 +176,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                         10,
                     );
                     let mut tx = tx.clone();
+                    log::debug!("spawning batch for blocks: [{}..{})", rem_start, inner.to);
                     tokio::task::spawn(async move {
                         // wrap in an ok because send_all only sends Result::Ok
                         let mut iter = eval_stream.map(Ok);
@@ -194,6 +199,11 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                         10,
                     );
                     let mut tx = tx.clone();
+                    log::debug!(
+                        "spawning batch for blocks: [{}..{})",
+                        from,
+                        from + blocks_per_task
+                    );
                     tokio::task::spawn(async move {
                         // wrap in an ok because send_all only sends Result::Ok
                         let mut iter = eval_stream.map(Ok);
@@ -204,20 +214,29 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 drop(tx);
 
                 // all the evaluations arrive at the receiver and are inserted into the DB
-                let mut inserts = BatchInserts::new(db, recv);
+                let mut inserts = BatchInserts::new(db, rx);
+                let mut insert_ctn = 0usize;
+                let mut error_ctn = 0usize;
                 while let Some(res) = inserts.next().await {
                     match res {
                         Ok(eval) => {
-                            println!(
+                            insert_ctn += 1;
+                            log::info!(
                                 "Inserted tx 0x{} in block {}",
-                                eval.inspection.hash, eval.inspection.block_number,
+                                eval.inspection.hash,
+                                eval.inspection.block_number,
                             );
                         }
                         Err(err) => {
-                            eprintln!("{:?}", err)
+                            error_ctn += 1;
+                            log::error!("failed to insert: {:?}", err)
                         }
                     }
                 }
+                println!(
+                    "inserted evaluations: {}, errors: {}, block range [{}..{}) using {} tasks",
+                    insert_ctn, error_ctn, inner.from, inner.to, inner.tasks
+                );
             }
         };
     } else {

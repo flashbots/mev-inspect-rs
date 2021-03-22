@@ -219,7 +219,12 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
         // queue in buffered evaluation jobs
         while this.evaluations_queue.len() < this.max {
             if let Some((inspection, gas_used, gas_price)) = this.waiting_inspections.pop_front() {
-                this.queue_in_evaluation(inspection, gas_used, gas_price)
+                this.queue_in_evaluation(inspection, gas_used, gas_price);
+                log::trace!(
+                    "queued new evaluation job, active: {}, waiting: {}",
+                    this.evaluations_queue.len(),
+                    this.waiting_inspections.len()
+                );
             } else {
                 break;
             }
@@ -228,6 +233,7 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
         while this.evaluations_queue.len() < this.max {
             match this.block_infos.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok((traces, block, receipts)))) => {
+                    log::trace!("fetched block infos for block {:?}", block.number);
                     let gas_price_txs = block
                         .transactions
                         .iter()
@@ -263,9 +269,15 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                         }
                     }
                 }
-                Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err))),
+                Poll::Ready(Some(Err(err))) => {
+                    return {
+                        log::error!("failed to fetch block: {:?}", err);
+                        Poll::Ready(Some(Err(err)))
+                    }
+                }
                 Poll::Pending => break,
                 Poll::Ready(None) => {
+                    log::trace!("all blocks fetched");
                     this.blocks_done = true;
                     break;
                 }
@@ -274,7 +286,10 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
 
         // pull the next value from the evaluations_queue
         match this.evaluations_queue.poll_next_unpin(cx) {
-            x @ Poll::Pending | x @ Poll::Ready(Some(_)) => return x,
+            x @ Poll::Pending | x @ Poll::Ready(Some(_)) => {
+                log::trace!("finished evaluation");
+                return x;
+            }
             Poll::Ready(None) => {}
         }
 
@@ -283,6 +298,7 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
             && this.evaluations_queue.is_empty()
             && this.waiting_inspections.is_empty()
         {
+            log::info!("batch done");
             Poll::Ready(None)
         } else {
             Poll::Pending

@@ -276,6 +276,7 @@ impl<'a, M: Middleware + Unpin> Stream for BatchInserts<'a, M> {
 
         // If more evaluations and insertions are processed we're not done yet
         if this.evals_done && this.insertion_queue.is_empty() && this.insertion.is_none() {
+            log::trace!("batch insert done");
             Poll::Ready(None)
         } else {
             Poll::Pending
@@ -294,8 +295,14 @@ async fn insert_evaluation(
     mut db: MevDB,
 ) -> Result<(Evaluation, MevDB), (MevDB, DbError)> {
     if let Err(err) = db.insert(&eval).await {
+        log::error!("DB insert failed: {:?}", err);
         Err((db, err))
     } else {
+        log::debug!(
+            "inserted evaluation of block {} with tx {}",
+            eval.inspection.block_number,
+            eval.inspection.hash
+        );
         Ok((eval, db))
     }
 }
