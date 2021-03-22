@@ -61,7 +61,7 @@ impl Inspection {
     }
 
     /// Returns: types of protocols, types of actions (arb, liq), bot addresses and profit
-    /// Bots that perform liq/arbs maybe for a profit that are nto int he addressbook should be
+    /// Bots that perform liq/arbs maybe for a profit that are not in the addressbook should be
     /// added
     pub fn summary(&self) {}
 

@@ -16,7 +16,7 @@ pub enum Status {
     Reverted,
     /// When a transaction reverts early but it had touched a DeFi protocol
     Checked,
-    /// When a transaction suceeds
+    /// When a transaction succeeds
     Success,
 }
 
