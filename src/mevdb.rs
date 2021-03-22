@@ -220,6 +220,19 @@ impl<'a, M: Middleware + Unpin> Stream for BatchInserts<'a, M> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
+        // start a new insert if ready
+        if let Some(db) = this.mev_db.take() {
+            if let Some(next) = this.insertion_queue.pop_front() {
+                log::trace!(
+                    "start next evaluation insert, {} pending",
+                    this.insertion_queue.len()
+                );
+                this.insertion = Some(Box::pin(insert_evaluation(next, db)));
+            } else {
+                this.mev_db = Some(db);
+            }
+        }
+
         // complete the insertion task
         if let Some(mut job) = this.insertion.take() {
             match job.poll_unpin(cx) {
@@ -237,27 +250,27 @@ impl<'a, M: Middleware + Unpin> Stream for BatchInserts<'a, M> {
             }
         }
 
-        // start a new insert if ready
-        if let Some(db) = this.mev_db.take() {
-            if let Some(next) = this.insertion_queue.pop_front() {
-                this.insertion = Some(Box::pin(insert_evaluation(next, db)));
-            } else {
-                this.mev_db = Some(db);
-            }
-        }
-
-        // queue in all evaluations
-        loop {
-            match this.pending_evaluations.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(eval))) => {
-                    this.insertion_queue.push_back(eval);
+        if !this.evals_done {
+            // queue in all evaluations that are coming in
+            loop {
+                match this.pending_evaluations.poll_next_unpin(cx) {
+                    Poll::Ready(Some(Ok(eval))) => {
+                        log::trace!(
+                            "received new evaluation of block {} with tx {}; waiting evaluations: {}",
+                            eval.inspection.block_number,
+                            eval.inspection.hash,
+                            this.insertion_queue.len() + 1
+                        );
+                        this.insertion_queue.push_back(eval);
+                    }
+                    Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err.into()))),
+                    Poll::Ready(None) => {
+                        log::trace!("evaluations done");
+                        this.evals_done = true;
+                        break;
+                    }
+                    Poll::Pending => break,
                 }
-                Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err.into()))),
-                Poll::Ready(None) => {
-                    this.evals_done = true;
-                    break;
-                }
-                Poll::Pending => break,
             }
         }
 
