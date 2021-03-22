@@ -200,6 +200,8 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                         let _ = tx.send_all(&mut iter).await;
                     });
                 }
+                // drop the sender so that the channel gets closed
+                drop(tx);
 
                 // all the evaluations arrive at the receiver and are inserted into the DB
                 let mut inserts = BatchInserts::new(db, recv);
