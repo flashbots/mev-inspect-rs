@@ -67,6 +67,11 @@ struct BlockOpts {
     to: u64,
     #[options(default = "4", help = "How many separate tasks to use")]
     tasks: u64,
+    #[options(
+        default = "10",
+        help = "Maximum of requests each task is allowed to execute concurrently"
+    )]
+    max_requests: usize,
 }
 
 #[tokio::main]
@@ -173,7 +178,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                         Arc::clone(&provider),
                         Arc::clone(&prices),
                         rem_start..inner.to,
-                        10,
+                        inner.max_requests,
                     );
                     let mut tx = tx.clone();
                     log::debug!("spawning batch for blocks: [{}..{})", rem_start, inner.to);
@@ -196,7 +201,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                         Arc::clone(&provider),
                         Arc::clone(&prices),
                         from..from + blocks_per_task,
-                        10,
+                        inner.max_requests,
                     );
                     let mut tx = tx.clone();
                     log::debug!(
