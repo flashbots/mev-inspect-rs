@@ -1,19 +1,38 @@
+use std::collections::{HashMap, VecDeque};
+use std::future::Future;
+use std::ops::Range;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use ethers::prelude::Middleware;
+use ethers::types::{Block, BlockNumber, Trace, Transaction, TransactionReceipt, TxHash, U256};
+use futures::{
+    stream::{self, FuturesUnordered},
+    Stream, StreamExt, TryFutureExt,
+};
+use itertools::Itertools;
+use thiserror::Error;
+
+use crate::mevdb::BatchInserts;
+use crate::types::{EvalError, Evaluation};
 use crate::{
     types::inspection::{Inspection, TraceWrapper},
-    Inspector, Reducer,
+    HistoricalPrice, Inspector, MevDB, Reducer,
 };
-use ethers::types::Trace;
-use itertools::Itertools;
+use std::sync::Arc;
 
 /// Classifies traces according to the provided inspectors
 pub struct BatchInspector {
-    inspectors: Vec<Box<dyn Inspector>>,
-    reducers: Vec<Box<dyn Reducer>>,
+    inspectors: Vec<Box<dyn Inspector + Send + Sync>>,
+    reducers: Vec<Box<dyn Reducer + Send + Sync>>,
 }
 
 impl BatchInspector {
     /// Constructor
-    pub fn new(inspectors: Vec<Box<dyn Inspector>>, reducers: Vec<Box<dyn Reducer>>) -> Self {
+    pub fn new(
+        inspectors: Vec<Box<dyn Inspector + Send + Sync>>,
+        reducers: Vec<Box<dyn Reducer + Send + Sync>>,
+    ) -> Self {
         Self {
             inspectors,
             reducers,
@@ -63,11 +82,269 @@ impl BatchInspector {
             reducer.reduce(inspection);
         }
     }
+
+    /// Evaluates all the blocks and evaluate them.
+    ///
+    /// This will return the `Evaluation`s of all the `Inspection`s for all the
+    /// blocks in any order.
+    ///
+    /// No more than `max` evaluations will be buffered at
+    /// any point in time.
+    pub fn evaluate_blocks<M: Middleware + Unpin + 'static>(
+        self: Arc<Self>,
+        provider: Arc<M>,
+        prices: Arc<HistoricalPrice<M>>,
+        blocks: Range<u64>,
+        max: usize,
+    ) -> BatchEvaluator<M> {
+        BatchEvaluator::new(self, provider, prices, blocks, max)
+    }
+}
+
+/// Get the necessary information for processing a block
+async fn get_block_info<M: Middleware + Unpin + 'static>(
+    provider: Arc<M>,
+    block_number: u64,
+) -> Result<(Vec<Trace>, Block<Transaction>, Vec<TransactionReceipt>), BatchEvaluationError<M>> {
+    let traces = provider
+        .trace_block(BlockNumber::Number(block_number.into()))
+        .map_err(|error| BatchEvaluationError::Block {
+            block_number,
+            error,
+        });
+
+    let block = provider
+        .get_block_with_txs(block_number)
+        .map_err(|error| BatchEvaluationError::Block {
+            block_number,
+            error,
+        })
+        .and_then(|block| {
+            futures::future::ready(block.ok_or(BatchEvaluationError::NotFound(block_number)))
+        });
+
+    let receipts = provider
+        .parity_block_receipts(block_number)
+        .map_err(|error| BatchEvaluationError::Block {
+            block_number,
+            error,
+        });
+
+    futures::try_join!(traces, block, receipts)
+}
+
+type BlockStream<T> = Pin<
+    Box<
+        dyn Stream<
+                Item = Result<
+                    (Vec<Trace>, Block<Transaction>, Vec<TransactionReceipt>),
+                    BatchEvaluationError<T>,
+                >,
+            > + Send,
+    >,
+>;
+
+type EvaluationResult<T> =
+    Pin<Box<dyn Future<Output = Result<Evaluation, BatchEvaluationError<T>>> + Send>>;
+
+pub struct BatchEvaluator<M: Middleware + 'static> {
+    prices: Arc<HistoricalPrice<M>>,
+    inspector: Arc<BatchInspector>,
+    block_infos: BlockStream<M>,
+    /// Evaluations that currently ongoing
+    evaluations_queue: FuturesUnordered<EvaluationResult<M>>,
+    /// `(Inspection, gas_used, gas_price)` waiting to be evaluated
+    waiting_inspections: VecDeque<(Inspection, U256, U256)>,
+    /// maximum allowed buffered futures
+    max: usize,
+    /// whether all block requests are done
+    blocks_done: bool,
+}
+
+impl<M: Middleware + Unpin + 'static> BatchEvaluator<M> {
+    fn new(
+        inspector: Arc<BatchInspector>,
+        provider: Arc<M>,
+        prices: Arc<HistoricalPrice<M>>,
+        blocks: Range<u64>,
+        max: usize,
+    ) -> Self {
+        let block_infos = stream::iter(
+            blocks
+                .into_iter()
+                .map(|block_number| get_block_info(Arc::clone(&provider), block_number))
+                .collect::<Vec<_>>(),
+        )
+        .buffer_unordered(max);
+
+        Self {
+            prices,
+            inspector,
+            block_infos: Box::pin(block_infos),
+            evaluations_queue: FuturesUnordered::new(),
+            waiting_inspections: VecDeque::new(),
+            max,
+            blocks_done: false,
+        }
+    }
+
+    /// Turn this stream into a `BatchInserter` that inserts all the `Evaluation`s
+    pub fn insert_all<'a>(self, mev_db: MevDB) -> BatchInserts<'a, M> {
+        BatchInserts::new(mev_db, self)
+    }
+
+    fn queue_in_evaluation(&mut self, inspection: Inspection, gas_used: U256, gas_price: U256) {
+        let block_number = inspection.block_number;
+        let hash = inspection.hash;
+        let prices = Arc::clone(&self.prices);
+        let eval = Box::pin(async move {
+            Evaluation::new(inspection, prices.as_ref(), gas_used, gas_price)
+                .map_err(move |error| BatchEvaluationError::Evaluation {
+                    block_number,
+                    hash,
+                    error,
+                })
+                .await
+        });
+        self.evaluations_queue.push(eval);
+    }
+}
+
+impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
+    type Item = Result<Evaluation, BatchEvaluationError<M>>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        // queue in buffered evaluation jobs
+        while this.evaluations_queue.len() < this.max {
+            if let Some((inspection, gas_used, gas_price)) = this.waiting_inspections.pop_front() {
+                this.queue_in_evaluation(inspection, gas_used, gas_price);
+                log::trace!(
+                    "queued new evaluation job, active: {}, waiting: {}",
+                    this.evaluations_queue.len(),
+                    this.waiting_inspections.len()
+                );
+            } else {
+                break;
+            }
+        }
+
+        while this.evaluations_queue.len() < this.max {
+            match this.block_infos.as_mut().poll_next(cx) {
+                Poll::Ready(Some(Ok((traces, block, receipts)))) => {
+                    log::trace!("fetched block infos for block {:?}", block.number);
+                    let gas_price_txs = block
+                        .transactions
+                        .iter()
+                        .map(|tx| (tx.hash, tx.gas_price))
+                        .collect::<HashMap<TxHash, U256>>();
+
+                    let gas_used_txs = receipts
+                        .into_iter()
+                        .map(|receipt| {
+                            (
+                                receipt.transaction_hash,
+                                receipt.gas_used.unwrap_or_default(),
+                            )
+                        })
+                        .collect::<HashMap<TxHash, U256>>();
+
+                    for inspection in this.inspector.inspect_many(traces) {
+                        let gas_used = gas_used_txs
+                            .get(&inspection.hash)
+                            .cloned()
+                            .unwrap_or_default();
+
+                        let gas_price = gas_price_txs
+                            .get(&inspection.hash)
+                            .cloned()
+                            .unwrap_or_default();
+
+                        if this.evaluations_queue.len() < this.max {
+                            this.queue_in_evaluation(inspection, gas_used, gas_price)
+                        } else {
+                            this.waiting_inspections
+                                .push_back((inspection, gas_used, gas_price));
+                        }
+                    }
+                }
+                Poll::Ready(Some(Err(err))) => {
+                    return {
+                        log::error!("failed to fetch block: {:?}", err);
+                        Poll::Ready(Some(Err(err)))
+                    }
+                }
+                Poll::Pending => break,
+                Poll::Ready(None) => {
+                    log::trace!("all blocks fetched");
+                    this.blocks_done = true;
+                    break;
+                }
+            }
+        }
+
+        // pull the next value from the evaluations_queue
+        match this.evaluations_queue.poll_next_unpin(cx) {
+            x @ Poll::Pending | x @ Poll::Ready(Some(_)) => {
+                log::trace!("finished evaluation");
+                return x;
+            }
+            Poll::Ready(None) => {}
+        }
+
+        // If more values are still coming from the stream, we're not done yet
+        if this.blocks_done
+            && this.evaluations_queue.is_empty()
+            && this.waiting_inspections.is_empty()
+        {
+            log::info!("batch done");
+            Poll::Ready(None)
+        } else {
+            Poll::Pending
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (blocks, _) = self.block_infos.size_hint();
+        let evals = self.evaluations_queue.len();
+        let waiting = self.waiting_inspections.len();
+        (blocks + evals + waiting, None)
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum BatchEvaluationError<M: Middleware + 'static> {
+    #[error("Block {0} does not exist")]
+    NotFound(u64),
+    /// An evaluation of an inspection failed
+    #[error(
+        "Failed to evaluate inspection with tx hash {} of block {}: {:?}",
+        block_number,
+        hash,
+        error
+    )]
+    Evaluation {
+        /// The block number of the inspection
+        block_number: u64,
+        /// The trace's tx hash
+        hash: TxHash,
+        /// The reason why it failed
+        error: EvalError<M>,
+    },
+    #[error("Failed to get block {}: {:?}", block_number, error)]
+    Block {
+        /// The block number of the inspection
+        block_number: u64,
+        /// The reason why it failed
+        error: <M as Middleware>::Error,
+    },
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use ethers::types::U256;
+
     use crate::{
         addresses::{ADDRESSBOOK, WETH},
         inspectors::*,
@@ -76,7 +353,8 @@ mod tests {
         test_helpers::*,
         types::{Protocol, Status},
     };
-    use ethers::types::U256;
+
+    use super::*;
 
     #[test]
     // call that starts from a bot but has a uniswap sub-trace

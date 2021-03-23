@@ -2,7 +2,7 @@ use mev_inspect::{
     inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
-    BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
+    BatchInserts, BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
 };
 
 use ethers::{
@@ -10,6 +10,7 @@ use ethers::{
     types::{BlockNumber, TxHash, U256},
 };
 
+use futures::SinkExt;
 use gumdrop::Options;
 use std::io::Write;
 use std::{collections::HashMap, convert::TryFrom, path::PathBuf, sync::Arc};
@@ -64,10 +65,18 @@ struct BlockOpts {
     from: u64,
     #[options(help = "the block to finish tracing at")]
     to: u64,
+    #[options(default = "4", help = "How many separate tasks to use")]
+    tasks: u64,
+    #[options(
+        default = "10",
+        help = "Maximum of requests each task is allowed to execute concurrently"
+    )]
+    max_requests: usize,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    pretty_env_logger::init();
     let opts = Opts::parse_args_default_or_exit();
 
     // Instantiate the provider and read from the cached files if needed
@@ -87,7 +96,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
 
     let compound = Compound::create(provider.clone()).await?;
     let curve = Curve::create(provider.clone()).await?;
-    let inspectors: Vec<Box<dyn Inspector>> = vec![
+    let inspectors: Vec<Box<dyn Inspector + Send + Sync>> = vec![
         // Classify Transfers
         Box::new(ZeroEx::new()),
         Box::new(ERC20::new()),
@@ -100,7 +109,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
         Box::new(compound),
     ];
 
-    let reducers: Vec<Box<dyn Reducer>> = vec![
+    let reducers: Vec<Box<dyn Reducer + Send + Sync>> = vec![
         Box::new(LiquidationReducer::new()),
         Box::new(TradeReducer::new()),
         Box::new(ArbitrageReducer::new()),
@@ -114,6 +123,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
         db.clear().await?;
         db.create().await?;
     }
+    log::debug!("created mevdb table");
 
     if let Some(cmd) = opts.cmd {
         match cmd {
@@ -147,21 +157,90 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 }
             }
             Command::Blocks(inner) => {
-                let t1 = std::time::Instant::now();
-                let stdout = std::io::stdout();
-                let mut lock = stdout.lock();
-                for block in inner.from..inner.to {
-                    // TODO: Can we do the block processing in parallel? Theoretically
-                    // it should be possible
-                    process_block(&mut lock, block, &provider, &processor, &mut db, &prices)
-                        .await?;
-                }
-                drop(lock);
+                log::debug!("command blocks {:?}", inner);
+                let provider = Arc::new(provider);
+                let processor = Arc::new(processor);
+                let prices = Arc::new(prices);
 
+                let (tx, rx) = futures::channel::mpsc::unbounded();
+
+                // divide the bloccs to process equally onto all the tasks
+                assert!(inner.from < inner.to);
+                let mut num_tasks = inner.tasks as usize;
+                let block_num = inner.to - inner.from;
+                let blocks_per_task = block_num.max(inner.tasks) / inner.tasks;
+                let rem = block_num % inner.tasks;
+
+                if rem > 0 {
+                    let rem_start = inner.to - rem - blocks_per_task;
+                    let processor = Arc::clone(&processor);
+                    let eval_stream = processor.evaluate_blocks(
+                        Arc::clone(&provider),
+                        Arc::clone(&prices),
+                        rem_start..inner.to,
+                        inner.max_requests,
+                    );
+                    let mut tx = tx.clone();
+                    log::debug!("spawning batch for blocks: [{}..{})", rem_start, inner.to);
+                    tokio::task::spawn(async move {
+                        // wrap in an ok because send_all only sends Result::Ok
+                        let mut iter = eval_stream.map(Ok);
+                        let _ = tx.send_all(&mut iter).await;
+                    });
+
+                    num_tasks -= 1;
+                };
+
+                for from in (inner.from..inner.to)
+                    .into_iter()
+                    .step_by(blocks_per_task as usize)
+                    .take(num_tasks as usize)
+                {
+                    let processor = Arc::clone(&processor);
+                    let eval_stream = processor.evaluate_blocks(
+                        Arc::clone(&provider),
+                        Arc::clone(&prices),
+                        from..from + blocks_per_task,
+                        inner.max_requests,
+                    );
+                    let mut tx = tx.clone();
+                    log::debug!(
+                        "spawning batch for blocks: [{}..{})",
+                        from,
+                        from + blocks_per_task
+                    );
+                    tokio::task::spawn(async move {
+                        // wrap in an ok because send_all only sends Result::Ok
+                        let mut iter = eval_stream.map(Ok);
+                        let _ = tx.send_all(&mut iter).await;
+                    });
+                }
+                // drop the sender so that the channel gets closed
+                drop(tx);
+
+                // all the evaluations arrive at the receiver and are inserted into the DB
+                let mut inserts = BatchInserts::new(db, rx);
+                let mut insert_ctn = 0usize;
+                let mut error_ctn = 0usize;
+                while let Some(res) = inserts.next().await {
+                    match res {
+                        Ok(eval) => {
+                            insert_ctn += 1;
+                            log::info!(
+                                "Inserted tx 0x{} in block {}",
+                                eval.inspection.hash,
+                                eval.inspection.block_number,
+                            );
+                        }
+                        Err(err) => {
+                            error_ctn += 1;
+                            log::error!("failed to insert: {:?}", err)
+                        }
+                    }
+                }
                 println!(
-                    "Processed {} blocks in {:?}",
-                    inner.to - inner.from,
-                    std::time::Instant::now().duration_since(t1)
+                    "inserted evaluations: {}, errors: {}, block range [{}..{}) using {} tasks",
+                    insert_ctn, error_ctn, inner.from, inner.to, inner.tasks
                 );
             }
         };
@@ -192,7 +271,7 @@ async fn process_block<M: Middleware + 'static>(
     block_number: u64,
     provider: &M,
     processor: &BatchInspector,
-    db: &mut MevDB<'_>,
+    db: &mut MevDB,
     prices: &HistoricalPrice<M>,
 ) -> anyhow::Result<()> {
     let block_number = block_number.into();
