@@ -37,7 +37,7 @@ pub use traits::*;
 
 /// PostGres trait implementations
 mod mevdb;
-pub use mevdb::{BatchInserts, MevDB};
+pub use mevdb::{copy_insert, BatchInserts, MevDB};
 
 mod prices;
 pub use prices::HistoricalPrice;

@@ -222,6 +222,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                 let mut inserts = BatchInserts::new(db, rx);
                 let mut insert_ctn = 0usize;
                 let mut error_ctn = 0usize;
+                let mut evals = Vec::new();
                 while let Some(res) = inserts.next().await {
                     match res {
                         Ok(eval) => {
@@ -231,6 +232,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                                 eval.inspection.hash,
                                 eval.inspection.block_number,
                             );
+                            evals.push(eval);
                         }
                         Err(err) => {
                             error_ctn += 1;
@@ -242,6 +244,10 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                     "inserted evaluations: {}, errors: {}, block range [{}..{}) using {} tasks",
                     insert_ctn, error_ctn, inner.from, inner.to, inner.tasks
                 );
+
+                let db = inserts.get_database().await;
+                println!("inserting");
+                mev_inspect::copy_insert(db, &evals).await?;
             }
         };
     } else {
