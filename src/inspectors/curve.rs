@@ -178,7 +178,7 @@ mod tests {
             Self {
                 inspector: Curve::new(vec![]),
                 erc20: ERC20::new(),
-                reducer1: TradeReducer::new(),
+                reducer1: TradeReducer,
                 reducer2: ArbitrageReducer::new(),
             }
         }

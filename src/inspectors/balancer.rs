@@ -141,7 +141,7 @@ mod tests {
             Self {
                 erc20: ERC20::new(),
                 balancer: Balancer::new(),
-                trade: TradeReducer::new(),
+                trade: TradeReducer,
                 arb: ArbitrageReducer::new(),
             }
         }

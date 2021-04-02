@@ -6,13 +6,6 @@ use crate::{
 
 pub struct TradeReducer;
 
-impl TradeReducer {
-    /// Instantiates the reducer
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 impl Reducer for TradeReducer {
     fn reduce(&self, inspection: &mut Inspection) {
         let actions = inspection.actions.to_vec();
@@ -80,7 +73,7 @@ mod tests {
     use crate::types::actions::Transfer;
 
     fn test_transfer_to_trade(input: Vec<Classification>, expected: Vec<Classification>) {
-        let uniswap = TradeReducer::new();
+        let uniswap = TradeReducer;
         let mut inspection = mk_inspection(input);
         uniswap.reduce(&mut inspection);
         assert_eq!(inspection.actions, expected);

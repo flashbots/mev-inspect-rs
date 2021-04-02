@@ -14,11 +14,27 @@ use ethers::{
     types::{Address, Bytes, Call as TraceCall, CallType, U256},
 };
 
+// TODO convert these to EthAbiType
+
 // Type aliases for Uniswap's `swap` return types
 type SwapTokensFor = (U256, U256, Vec<Address>, Address, U256);
 type SwapEthFor = (U256, Vec<Address>, Address, U256);
 type PairSwap = (U256, U256, Address, Bytes);
+/// (tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin, to, deadline)
+/// See https://uniswap.org/docs/v2/smart-contracts/router02/#addliquidity
 type AddLiquidity = (Address, Address, U256, U256, U256, U256, Address, U256);
+//
+// /// (token, amountTokenDesired, amountTokenMin, amountETHMin, to, deadline)
+// /// See https://uniswap.org/docs/v2/smart-contracts/router02/#addliquidityeth
+// type AddLiquidityEth = (Address, U256, U256, U256, Address, U256);
+//
+// /// (tokenA, tokenB, liquidity, amountAMin, amountBMin, to, deadline)
+// /// See https://uniswap.org/docs/v2/smart-contracts/router02/#removeliquidity
+// type RemoveLiquidity = (Address, Address, U256, U256, U256, Address, U256);
+//
+// /// (tokenA, liquidity, amountTokenMin, amountETHMin, to, deadline)
+// /// See https://uniswap.org/docs/v2/smart-contracts/router02/#removeliquidityeth
+// type RemoveLiquidityEth = (Address, U256, U256, U256, Address, U256);
 
 #[derive(Debug, Clone)]
 /// An inspector for Uniswap
@@ -238,7 +254,7 @@ pub mod tests {
             Self {
                 erc20: ERC20::new(),
                 uni: Uniswap::new(),
-                trade: TradeReducer::new(),
+                trade: TradeReducer,
                 arb: ArbitrageReducer::new(),
             }
         }

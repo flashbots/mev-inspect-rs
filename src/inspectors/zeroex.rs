@@ -106,7 +106,7 @@ mod tests {
             Self {
                 zeroex: ZeroEx::new(),
                 erc20: ERC20::new(),
-                trade: TradeReducer::new(),
+                trade: TradeReducer,
                 arbitrage: ArbitrageReducer::new(),
             }
         }
