@@ -42,6 +42,9 @@ pub use mevdb::{BatchInserts, MevDB};
 mod prices;
 pub use prices::HistoricalPrice;
 
+mod model;
+mod sandwich;
+
 /// Checks if `a2` is a subtrace of `a1`
 pub(crate) fn is_subtrace(a1: &[usize], a2: &[usize]) -> bool {
     if a1.is_empty() {
