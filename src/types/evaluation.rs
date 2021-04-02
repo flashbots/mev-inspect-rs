@@ -10,13 +10,41 @@ use ethers::{
 };
 use std::collections::HashSet;
 
+use crate::mevdb::DbError;
+use crate::model::FromSqlRow;
+use crate::types::Protocol;
+use ethers::types::Address;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
+use std::fmt;
+use std::str::FromStr;
 use thiserror::Error;
+use tokio_postgres::Row;
 
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
 pub enum ActionType {
     Liquidation,
     Arbitrage,
     Trade,
+}
+
+impl fmt::Display for ActionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+impl FromStr for ActionType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "liquidation" | "Liquidation" => Ok(ActionType::Liquidation),
+            "arbitrage" | "Arbitrage" => Ok(ActionType::Arbitrage),
+            "trade" | "Trade" => Ok(ActionType::Trade),
+            s => Err(format!("`{}` is nat a valid action type", s)),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -146,6 +174,90 @@ impl Evaluation {
             gas_price,
             actions,
             profit,
+        })
+    }
+}
+
+impl FromSqlRow for Evaluation {
+    fn from_row(row: &Row) -> Result<Self, DbError>
+    where
+        Self: Sized,
+    {
+        let hash = TxHash::from_str(row.try_get("hash")?)
+            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+
+        let status = Status::from_str(row.try_get("status")?).map_err(DbError::FromSqlError)?;
+
+        let block_number: Decimal = row.try_get("block_number")?;
+
+        let gas_price: Decimal = row.try_get("gas_price")?;
+        let gas_price = U256::from_str_radix(&gas_price.to_string(), 10)
+            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+
+        let gas_used: Decimal = row.try_get("gas_used")?;
+        let gas_used = U256::from_str_radix(&gas_used.to_string(), 10)
+            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+
+        let revenue: Decimal = row.try_get("revenue")?;
+        let revenue = U256::from_str_radix(&revenue.to_string(), 10)
+            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+
+        let protocols: Vec<&str> = row.try_get("protocols")?;
+        let protocols = protocols
+            .into_iter()
+            .map(Protocol::from_str)
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(DbError::FromSqlError)?;
+
+        let actions: Vec<&str> = row.try_get("actions")?;
+        let actions = actions
+            .into_iter()
+            .map(ActionType::from_str)
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(DbError::FromSqlError)?;
+
+        let from = Address::from_str(row.try_get("eoa")?)
+            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+
+        let contract = Address::from_str(row.try_get("contract")?)
+            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+
+        let proxy: Option<&str> = row.try_get("proxy_impl")?;
+        let proxy_impl = if let Some(proxy) = proxy {
+            if proxy.is_empty() {
+                None
+            } else {
+                Some(
+                    Address::from_str(proxy)
+                        .map_err(|err| DbError::FromSqlError(err.to_string()))?,
+                )
+            }
+        } else {
+            None
+        };
+
+        let transaction_position: Decimal = row.try_get("transaction_position")?;
+
+        Ok(Self {
+            inspection: Inspection {
+                status,
+                actions: vec![],
+                protocols,
+                from,
+                contract,
+                proxy_impl,
+                hash,
+                block_number: block_number
+                    .to_u64()
+                    .ok_or_else(|| DbError::FromSqlError("Failed to convert to u64".to_string()))?,
+                transaction_position: transaction_position.to_usize().ok_or_else(|| {
+                    DbError::FromSqlError("Failed to convert to usize".to_string())
+                })?,
+            },
+            gas_used,
+            gas_price,
+            actions,
+            profit: revenue,
         })
     }
 }

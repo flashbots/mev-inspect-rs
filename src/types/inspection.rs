@@ -38,6 +38,9 @@ pub struct Inspection {
 
     /// The block number of this tx
     pub block_number: u64,
+
+    /// Transaction position
+    pub transaction_position: usize,
 }
 
 impl Inspection {
@@ -126,6 +129,7 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
             proxy_impl: None,
             hash: trace.transaction_hash.unwrap_or_else(TxHash::zero),
             block_number: trace.block_number,
+            transaction_position: trace.transaction_position.expect("Trace has position"),
         };
 
         inspection.actions = traces

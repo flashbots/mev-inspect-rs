@@ -1,7 +1,9 @@
 use crate::inspectors::BatchEvaluationError;
-use crate::types::Evaluation;
+use crate::model::FromSqlRow;
+use crate::types::evaluation::ActionType;
+use crate::types::{Evaluation, Protocol};
 use ethers::prelude::Middleware;
-use ethers::types::{TxHash, U256};
+use ethers::types::{Address, TxHash, U256};
 use futures::{Future, FutureExt, Stream, StreamExt};
 use rust_decimal::prelude::*;
 use std::collections::VecDeque;
@@ -38,7 +40,7 @@ impl MevDB {
     }
 
     /// Creates a new table for the MEV data
-    pub async fn create(&mut self) -> Result<(), DbError> {
+    pub async fn create(&self) -> Result<(), DbError> {
         self.client
             .batch_execute(&format!(
                 "CREATE TABLE IF NOT EXISTS {} (
@@ -57,6 +59,8 @@ impl MevDB {
                     contract text,
                     proxy_impl text,
 
+                    transaction_position NUMERIC,
+
                     inserted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )",
                 self.table_name
@@ -65,8 +69,135 @@ impl MevDB {
         Ok(())
     }
 
+    /// Returns all database `Evaluation` entries where the `eoa` column matches the address
+    pub async fn select_where_eoa(&self, address: Address) -> Result<Vec<Evaluation>, DbError> {
+        self.select_where(&format!("eoa = '{:?}'", address)).await
+    }
+
+    /// Returns all database `Evaluation` entries where the `protocol` column contains one of
+    /// the provided protocols
+    pub async fn select_where_protocols(
+        &self,
+        protocols: &[Protocol],
+    ) -> Result<Vec<Evaluation>, DbError> {
+        let values = protocols
+            .iter()
+            .map(|p| format!("'{}'", p.to_string()))
+            .collect::<Vec<_>>()
+            .join(",");
+        self.select_where(&format!("ARRAY[{}]::text[] <@ protocols", values))
+            .await
+    }
+
+    /// Returns all database `Evaluation` entries where the `actions` column contains one of
+    /// the provided action
+    pub async fn select_where_actions(
+        &self,
+        actions: &[ActionType],
+    ) -> Result<Vec<Evaluation>, DbError> {
+        let values = actions
+            .iter()
+            .map(|p| format!("'{}'", p.to_string()))
+            .collect::<Vec<_>>()
+            .join(",");
+        self.select_where(&format!("ARRAY[{}]::text[] <@ actions", values))
+            .await
+    }
+
+    /// Returns the latest block number stored in the database
+    pub async fn latest_block(&self) -> Result<u64, DbError> {
+        Ok(self
+            .client
+            .query_one(
+                format!("SELECT MAX(block_number) FROM {}", self.table_name).as_str(),
+                &[],
+            )
+            .await?
+            .get::<_, Decimal>(0)
+            .to_u64()
+            .expect("block number stored as u64; qed"))
+    }
+
+    /// Returns the earliest block number stored in the database
+    pub async fn earliest_block(&self) -> Result<u64, DbError> {
+        Ok(self
+            .client
+            .query_one(
+                format!("SELECT MIN(block_number) FROM {}", self.table_name).as_str(),
+                &[],
+            )
+            .await?
+            .get::<_, Decimal>(0)
+            .to_u64()
+            .expect("block number stored as u64; qed"))
+    }
+
+    /// Returns all database `Evaluation` entries where the `block_number` column matches the block_number
+    pub async fn select_where_block(&self, block_number: u64) -> Result<Vec<Evaluation>, DbError> {
+        self.select_where(&format!("block_number = {}", block_number))
+            .await
+    }
+
+    /// Returns all database `Evaluation` entries where the `block_number` is [lower..upper]
+    pub async fn select_where_block_in_range(
+        &self,
+        lower: u64,
+        upper: u64,
+    ) -> Result<Vec<Evaluation>, DbError> {
+        self.select_where(&format!(
+            "block_number >= {} AND block_number <= {}",
+            lower, upper
+        ))
+        .await
+    }
+
+    /// Returns the `Evaluation` entry with the transaction `hash` primary key.
+    pub async fn select_transaction(&self, tx: TxHash) -> Result<Evaluation, DbError> {
+        let row = self
+            .client
+            .query_one(
+                format!("SELECT * FROM {} WHERE hash = '{:?}'", self.table_name, tx).as_str(),
+                &[],
+            )
+            .await?;
+        Evaluation::from_row(&row)
+    }
+
+    /// Returns all database `Evaluation` entries where the `proxy_impl` column matches the address
+    pub async fn select_where_proxy(&self, address: Address) -> Result<Vec<Evaluation>, DbError> {
+        self.select_where(&format!("proxy_impl = '{:?}'", address))
+            .await
+    }
+
+    /// Returns all database `Evaluation` entries where the `contract` column matches the address
+    pub async fn select_where_contract(
+        &self,
+        address: Address,
+    ) -> Result<Vec<Evaluation>, DbError> {
+        self.select_where(&format!("contract = '{:?}'", address))
+            .await
+    }
+
+    /// Expects the `WHERE` clause as input: `eoa = '0x2363423..'`
+    pub async fn select_where(&self, stmt: &str) -> Result<Vec<Evaluation>, DbError> {
+        self.client
+            .query(
+                format!(
+                    "SELECT * FROM {} WHERE {}",
+                    self.table_name,
+                    stmt.trim_start_matches("WHERE ")
+                )
+                .as_str(),
+                &[],
+            )
+            .await?
+            .iter()
+            .map(FromSqlRow::from_row)
+            .collect()
+    }
+
     /// Inserts data from this evaluation to PostGres
-    pub async fn insert(&mut self, evaluation: &Evaluation) -> Result<(), DbError> {
+    pub async fn insert(&self, evaluation: &Evaluation) -> Result<(), DbError> {
         self.client
             .execute(
                 format!(
@@ -81,8 +212,9 @@ impl MevDB {
                         actions,
                         eoa,
                         contract,
-                        proxy_impl
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                        proxy_impl,
+                        transaction_position
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                     {}",
                     self.table_name, self.overwrite,
                 )
@@ -103,6 +235,7 @@ impl MevDB {
                         .proxy_impl
                         .map(|x| format!("{:?}", x))
                         .unwrap_or_else(|| "".to_owned()),
+                    &Decimal::from(evaluation.inspection.transaction_position),
                 ],
             )
             .await?;
@@ -111,7 +244,7 @@ impl MevDB {
     }
 
     /// Checks if the transaction hash is already inspected
-    pub async fn exists(&mut self, hash: TxHash) -> Result<bool, DbError> {
+    pub async fn exists(&self, hash: TxHash) -> Result<bool, DbError> {
         let rows = self
             .client
             .query(
@@ -128,7 +261,7 @@ impl MevDB {
     }
 
     /// Checks if the provided block has been inspected
-    pub async fn block_exists(&mut self, block: u64) -> Result<bool, DbError> {
+    pub async fn block_exists(&self, block: u64) -> Result<bool, DbError> {
         let rows = self
             .client
             .query(
@@ -147,7 +280,7 @@ impl MevDB {
         }
     }
 
-    pub async fn clear(&mut self) -> Result<(), DbError> {
+    pub async fn clear(&self) -> Result<(), DbError> {
         self.client
             .batch_execute(&format!("DROP TABLE {}", self.table_name))
             .await?;
@@ -159,6 +292,10 @@ impl MevDB {
 pub enum DbError {
     #[error(transparent)]
     Decimal(#[from] rust_decimal::Error),
+
+    /// Occurs when converting a `FromSql` type failed
+    #[error("{0}")]
+    FromSqlError(String),
 
     #[error("could not convert u64 to decimal")]
     InvalidDecimal,
@@ -292,7 +429,7 @@ impl<'a, M: Middleware + Unpin> Stream for BatchInserts<'a, M> {
 
 async fn insert_evaluation(
     eval: Evaluation,
-    mut db: MevDB,
+    db: MevDB,
 ) -> Result<(Evaluation, MevDB), (MevDB, DbError)> {
     if let Err(err) = db.insert(&eval).await {
         log::error!("DB insert failed: {:?}", err);
