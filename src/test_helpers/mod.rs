@@ -24,6 +24,7 @@ pub fn mk_inspection(actions: Vec<Classification>) -> Inspection {
         proxy_impl: None,
         hash: TxHash::zero(),
         block_number: 0,
+        transaction_position: 0,
     }
 }
 

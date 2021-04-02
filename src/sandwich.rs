@@ -11,7 +11,7 @@
 //!
 //! The timeline of the transactions looks as follows:
 //!
-//! ```ascii
+//! ```text
 //!   |                                        transaction order
 //!   |                                                |
 //!   |                Txy_a-------------------------->| front running
@@ -21,6 +21,7 @@
 //! Block N                                      Block N+x
 //! ---------time appearance on Ethereum network------->
 //! ```
+//!
 //! The attacker's goal is to make sure transactions `Txy_a`, `Txy_v` and
 //! `Tyx_a` appear in the same block in that order, so that the attacker profits
 //! from the victim's slippage. The attacker can influence the position of their
@@ -33,11 +34,11 @@
 //! In this scenario an attacker targets the victims `TransactXforY` transaction
 //! (`Txy_v`) by emitting 3 transactions:
 //!
-//!     1) `RemoveLiquidity` `Tout_a` (increases victim’s slippage)
+//! 1) `RemoveLiquidity` `Tout_a` (increases victim’s slippage)
 //!         - attacker withdraws δx of asset X, and δy of asset Y
-//!     2) `AddLiquidity` `Tin_a` (restores pool liquidity)
+//! 2) `AddLiquidity` `Tin_a` (restores pool liquidity)
 //!         - attacker deposits δx of asset X, and δy of asset Y
-//!     3) `TransactYforX` `Tyx_a` (restores asset balance of X)
+//! 3) `TransactYforX` `Tyx_a` (restores asset balance of X)
 //!         - attacker trades δy of asset Y, increasing the available liquidity
 //!           of asset Y, in exchange for δx
 //!
@@ -54,7 +55,7 @@
 //!
 //! The timeline of the transactions looks as follows:
 //!
-//! ```ascii
+//! ```text
 //!   |                                        transaction order
 //!   |                Tout_a------------------------->| front running
 //!   |      Txy_v------------------------------------>|

@@ -476,11 +476,10 @@ mod tests {
     #[tokio::test]
     async fn insert_eval() {
         let mut config = Config::default();
-        config
-            .host("localhost")
-            .user("mev_rs_user")
-            .dbname("mev_inspections_test");
-        let mut client = MevDB::connect(config, "mev_inspections").await.unwrap();
+        config.host("localhost").user("postgres");
+        let client = MevDB::connect(config, "mev_inspections_test")
+            .await
+            .unwrap();
         let _ = client.clear().await;
         client.create().await.unwrap();
 
@@ -493,6 +492,7 @@ mod tests {
             proxy_impl: None,
             hash: TxHash::zero(),
             block_number: 9,
+            transaction_position: 0,
         };
         let actions = [ActionType::Liquidation, ActionType::Arbitrage]
             .iter()
@@ -512,5 +512,6 @@ mod tests {
 
         // conflicts get ignored
         client.insert(&evaluation).await.unwrap();
+        client.clear().await.unwrap();
     }
 }
