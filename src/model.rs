@@ -4,6 +4,8 @@ use ethers::types::*;
 use rust_decimal::prelude::{FromStr, ToPrimitive};
 use rust_decimal::Decimal;
 use std::convert::TryFrom;
+use std::fmt;
+use tokio_postgres::row::RowIndex;
 use tokio_postgres::Row;
 
 /// Helper trait to convert from `tokio_postgres::Row`
@@ -12,6 +14,74 @@ pub trait FromSqlRow {
     fn from_row(row: &tokio_postgres::Row) -> Result<Self, DbError>
     where
         Self: Sized;
+}
+
+/// Internal helper trait
+pub(crate) trait FromSqlExt {
+    fn try_get_address<I>(&self, idx: I) -> Result<Address, DbError>
+    where
+        I: RowIndex + fmt::Display;
+
+    fn try_get_u256<I>(&self, idx: I) -> Result<U256, DbError>
+    where
+        I: RowIndex + fmt::Display;
+
+    fn try_get_h256<I>(&self, idx: I) -> Result<H256, DbError>
+    where
+        I: RowIndex + fmt::Display;
+
+    fn try_get_u64<I>(&self, idx: I) -> Result<u64, DbError>
+    where
+        I: RowIndex + fmt::Display;
+
+    fn try_get_usize<I>(&self, idx: I) -> Result<usize, DbError>
+    where
+        I: RowIndex + fmt::Display;
+}
+
+impl FromSqlExt for Row {
+    fn try_get_address<I>(&self, idx: I) -> Result<Address, DbError>
+    where
+        I: RowIndex + fmt::Display,
+    {
+        Address::from_str(self.try_get(idx)?).map_err(|err| DbError::FromSqlError(err.to_string()))
+    }
+
+    fn try_get_u256<I>(&self, idx: I) -> Result<U256, DbError>
+    where
+        I: RowIndex + fmt::Display,
+    {
+        let value: Decimal = self.try_get(idx)?;
+        U256::from_str_radix(&value.to_string(), 10)
+            .map_err(|err| DbError::FromSqlError(err.to_string()))
+    }
+
+    fn try_get_h256<I>(&self, idx: I) -> Result<H256, DbError>
+    where
+        I: RowIndex + fmt::Display,
+    {
+        H256::from_str(self.try_get(idx)?).map_err(|err| DbError::FromSqlError(err.to_string()))
+    }
+
+    fn try_get_u64<I>(&self, idx: I) -> Result<u64, DbError>
+    where
+        I: RowIndex + fmt::Display,
+    {
+        let value: Decimal = self.try_get(idx)?;
+        value
+            .to_u64()
+            .ok_or_else(|| DbError::FromSqlError("Failed to convert decimal to u64".to_string()))
+    }
+
+    fn try_get_usize<I>(&self, idx: I) -> Result<usize, DbError>
+    where
+        I: RowIndex + fmt::Display,
+    {
+        let value: Decimal = self.try_get(idx)?;
+        value
+            .to_usize()
+            .ok_or_else(|| DbError::FromSqlError("Failed to convert decimal to usize".to_string()))
+    }
 }
 
 /// Representation of a Defi protocol address
@@ -28,8 +98,7 @@ impl FromSqlRow for ProtocolAddress {
     where
         Self: Sized,
     {
-        let address = Address::from_str(row.try_get("address")?)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+        let address = row.try_get_address("address")?;
         let name = row.try_get("name")?;
         Ok(Self { address, name })
     }
@@ -51,8 +120,7 @@ impl FromSqlRow for ProtocolJunctionAddress {
     where
         Self: Sized,
     {
-        let address = Address::from_str(row.try_get("address")?)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+        let address = row.try_get_address("address")?;
         let name = row.try_get("name")?;
         let info = row.try_get("info")?;
         Ok(Self {
@@ -85,8 +153,7 @@ impl FromSqlRow for InternalTransfer {
     where
         Self: Sized,
     {
-        let transaction_hash = TxHash::from_str(row.try_get("transaction_hash")?)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+        let transaction_hash = row.try_get_h256("transaction_hash")?;
 
         let trace_address: Vec<Decimal> = row.try_get("trace_address")?;
         let trace_address = trace_address
@@ -98,19 +165,10 @@ impl FromSqlRow for InternalTransfer {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let value: Decimal = row.try_get("value")?;
-        let value = U256::from_str_radix(&value.to_string(), 10)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
-
-        let gas_used: Decimal = row.try_get("gas_used")?;
-        let gas_used = U256::from_str_radix(&gas_used.to_string(), 10)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
-
-        let from = Address::from_str(row.try_get("caller")?)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
-
-        let to = Address::from_str(row.try_get("callee")?)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+        let value = row.try_get_u256("value")?;
+        let gas_used = row.try_get_u256("gas_used")?;
+        let from = row.try_get_address("caller")?;
+        let to = row.try_get_address("callee")?;
 
         Ok(Self {
             transaction_hash,
@@ -183,8 +241,7 @@ impl FromSqlRow for EventLog {
     where
         Self: Sized,
     {
-        let transaction_hash = TxHash::from_str(row.try_get("transaction_hash")?)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
+        let transaction_hash = row.try_get_h256("transaction_hash")?;
 
         let topics: Vec<&str> = row.try_get("topics")?;
         let topics = topics
@@ -196,34 +253,21 @@ impl FromSqlRow for EventLog {
 
         let data: Vec<u8> = row.try_get("topics")?;
 
-        let transaction_index: Decimal = row.try_get("transaction_index")?;
-
-        let signature = H256::from_str(row.try_get("signature")?)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
-
-        let log_index: Decimal = row.try_get("log_index")?;
-        let log_index = U256::from_str_radix(&log_index.to_string(), 10)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
-
-        let transaction_log_index: Decimal = row.try_get("transaction_log_index")?;
-        let transaction_log_index = U256::from_str_radix(&transaction_log_index.to_string(), 10)
-            .map_err(|err| DbError::FromSqlError(err.to_string()))?;
-
-        let block_number: Decimal = row.try_get("block_number")?;
+        let transaction_index = row.try_get_u64("transaction_index")?;
+        let signature = row.try_get_h256("signature")?;
+        let log_index = row.try_get_u256("log_index")?;
+        let transaction_log_index = row.try_get_u256("transaction_log_index")?;
+        let block_number = row.try_get_u64("block_number")?;
 
         Ok(Self {
             transaction_hash,
             signature,
             topics,
             data,
-            transaction_index: transaction_index
-                .to_u64()
-                .ok_or_else(|| DbError::FromSqlError("Failed to convert to u64".to_string()))?,
+            transaction_index,
             log_index,
             transaction_log_index,
-            block_number: block_number
-                .to_u64()
-                .ok_or_else(|| DbError::FromSqlError("Failed to convert to u64".to_string()))?,
+            block_number,
         })
     }
 }
