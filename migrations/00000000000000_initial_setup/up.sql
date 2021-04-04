@@ -20,9 +20,10 @@ CREATE TABLE IF NOT EXISTS mev_inspections
     inserted_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- internal value transfers/transactions
--- only intended for ETH transfers with value (no zero value transfers)
-CREATE TABLE IF NOT EXISTS internal_transfers
+CREATE TYPE call_classification AS ENUM ('unknown', 'deposit', 'withdrawal', 'transfer', 'trade', 'liquidation', 'addliquidation', 'swap');
+
+-- internal call within the transactions trace
+CREATE TABLE IF NOT EXISTS internal_calls
 (
     -- hash of the transaction this log occurred in
     transaction_hash TEXT NOT NULL REFERENCES mev_inspections (hash) ON UPDATE CASCADE ON DELETE CASCADE,
@@ -35,7 +36,13 @@ CREATE TABLE IF NOT EXISTS internal_transfers
     -- who transferred the ETH
     caller           TEXT,
     -- who received the ETH
-    callee           TEXT
+    callee           TEXT,
+    -- if the callee is a known protocol
+    protocol         TEXT,
+    -- call input data
+    input            BYTEA,
+    -- classification of the call
+    classification   call_classification default 'unknown'
 );
 
 -- ethereum event logs

@@ -1,5 +1,6 @@
 //! Database model types
 use crate::mevdb::DbError;
+use crate::types::Protocol;
 use ethers::types::*;
 use rust_decimal::prelude::{FromStr, ToPrimitive};
 use rust_decimal::Decimal;
@@ -131,9 +132,49 @@ impl FromSqlRow for ProtocolJunctionAddress {
     }
 }
 
-/// Database model of an internal value transfer within a ethereum transaction
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Hash)]
+pub enum CallClassification {
+    Unknown,
+    Deposit,
+    Withdrawal,
+    Transfer,
+    Liquidation,
+    AddLiquidation,
+    Swap,
+}
+
+impl Default for CallClassification {
+    fn default() -> Self {
+        CallClassification::Unknown
+    }
+}
+
+impl fmt::Display for CallClassification {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+impl FromStr for CallClassification {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "unknown" => Ok(CallClassification::Unknown),
+            "deposit" => Ok(CallClassification::Deposit),
+            "withdrawal" => Ok(CallClassification::Withdrawal),
+            "transfer" => Ok(CallClassification::Transfer),
+            "liquidation" => Ok(CallClassification::Liquidation),
+            "addliquidation" => Ok(CallClassification::AddLiquidation),
+            "swap" => Ok(CallClassification::Swap),
+            s => Err(format!("`{}` is nat a valid action type", s)),
+        }
+    }
+}
+
+/// Database model of an internal call within a transaction
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct InternalTransfer {
+pub struct InternalCall {
     /// The hash of the transaction this event occurred in
     pub transaction_hash: TxHash,
     /// The signature of the event
@@ -146,9 +187,15 @@ pub struct InternalTransfer {
     pub from: Address,
     /// The address who received the ETH
     pub to: Address,
+    /// The protocol of the callee
+    pub protocol: Option<Protocol>,
+    /// The input data to the call
+    pub input: Vec<u8>,
+    /// What kind of call this is, if it could be determined
+    pub classification: CallClassification,
 }
 
-impl FromSqlRow for InternalTransfer {
+impl FromSqlRow for InternalCall {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
         Self: Sized,
@@ -169,6 +216,8 @@ impl FromSqlRow for InternalTransfer {
         let gas_used = row.try_get_u256("gas_used")?;
         let from = row.try_get_address("caller")?;
         let to = row.try_get_address("callee")?;
+        let classification = CallClassification::from_str(row.try_get("classification")?)
+            .map_err(DbError::FromSqlError)?;
 
         Ok(Self {
             transaction_hash,
@@ -177,6 +226,9 @@ impl FromSqlRow for InternalTransfer {
             gas_used,
             from,
             to,
+            protocol: None,
+            input: row.try_get("input")?,
+            classification,
         })
     }
 }
@@ -188,7 +240,7 @@ pub struct EventLog {
     pub transaction_hash: TxHash,
     /// The signature of the event
     pub signature: H256,
-    /// all the other topics
+    /// all topics, including signature at index 0
     pub topics: Vec<H256>,
     /// all the other data of the log
     pub data: Vec<u8>,
@@ -221,7 +273,7 @@ impl TryFrom<Log> for EventLog {
         if topics.is_empty() {
             return Err(());
         }
-        let signature = topics.remove(0);
+        let signature = topics[0].clone();
 
         Ok(Self {
             transaction_hash: transaction_hash.ok_or(())?,

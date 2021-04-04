@@ -19,7 +19,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tokio_postgres::Row;
 
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Hash)]
 pub enum ActionType {
     Liquidation,
     Arbitrage,
@@ -232,6 +232,7 @@ impl FromSqlRow for Evaluation {
                 hash,
                 block_number,
                 transaction_position,
+                internal_calls: vec![],
             },
             gas_used,
             gas_price,
