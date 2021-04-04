@@ -1,5 +1,5 @@
 use crate::inspectors::BatchEvaluationError;
-use crate::model::FromSqlRow;
+use crate::model::SqlRowExt;
 use crate::types::evaluation::ActionType;
 use crate::types::{Evaluation, Protocol};
 use ethers::prelude::Middleware;
@@ -11,6 +11,14 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use thiserror::Error;
 use tokio_postgres::{config::Config, Client, NoTls};
+
+/// The SQL script to setup the database schema
+pub const DATABASE_MIGRATION_UP: &'static str =
+    include_str!("../migrations/00000000000000_initial_setup/up.sql");
+
+/// The SQL script to drop all the database infra
+pub const DATABASE_MIGRATION_DOWN: &'static str =
+    include_str!("../migrations/00000000000000_initial_setup/down.sql");
 
 /// Wrapper around PostGres for storing results in the database
 pub struct MevDB {
@@ -37,6 +45,22 @@ impl MevDB {
             table_name: table_name.into(),
             overwrite: overwrite.to_owned(),
         })
+    }
+
+    /// Runs the database migration
+    pub async fn run_migration(&self) -> Result<(), DbError> {
+        Ok(self.client.batch_execute(DATABASE_MIGRATION_UP).await?)
+    }
+
+    /// Reverts the database migration
+    pub async fn revert_migration(&self) -> Result<(), DbError> {
+        Ok(self.client.batch_execute(DATABASE_MIGRATION_DOWN).await?)
+    }
+
+    /// First runs the down.sql script and then up.sql
+    pub async fn redo_migration(&self) -> Result<(), DbError> {
+        self.revert_migration().await?;
+        self.run_migration().await
     }
 
     /// Creates a new table for the MEV data
@@ -192,7 +216,7 @@ impl MevDB {
             )
             .await?
             .iter()
-            .map(FromSqlRow::from_row)
+            .map(SqlRowExt::from_row)
             .collect()
     }
 

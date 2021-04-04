@@ -60,7 +60,14 @@ impl DefiProtocol for Compound {
     }
 
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
-        todo!()
+        self.cether
+            .decode::<LiquidateBorrowEth, _>("liquidateBorrow", &call.input)
+            .map(|_| CallClassification::Liquidation)
+            .or(self
+                .ctoken
+                .decode::<LiquidateBorrow, _>("liquidateBorrow", &call.input)
+                .map(|_| CallClassification::Liquidation))
+            .ok()
     }
 }
 

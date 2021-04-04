@@ -9,7 +9,7 @@ use crate::{
 use crate::model::{CallClassification, InternalCall};
 use ethers::{
     contract::{abigen, BaseContract},
-    types::{Address, Call as TraceCall, U256},
+    types::{Address, U256},
 };
 
 abigen!(BalancerPool, "abi/bpool.json");
@@ -20,13 +20,6 @@ abigen!(BalancerProxy, "abi/bproxy.json");
 pub struct Balancer {
     bpool: BaseContract,
     bproxy: BaseContract,
-}
-
-impl Balancer {
-    fn check(&self, call: &TraceCall) -> bool {
-        // TODO: Adjust for exchange proxy calls
-        call.to == *BALANCER_PROXY
-    }
 }
 
 impl Default for Balancer {
@@ -48,6 +41,11 @@ impl DefiProtocol for Balancer {
 
     fn protocol() -> Protocol {
         Protocol::Balancer
+    }
+
+    fn is_protocol(&self, to: &Address) -> Option<bool> {
+        // TODO: Adjust for exchange proxy calls
+        Some(*to == *BALANCER_PROXY)
     }
 
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
@@ -82,7 +80,7 @@ impl Inspector for Balancer {
                 {
                     inner
                 } else {
-                    if self.check(calltrace.as_ref()) {
+                    if self.is_protocol(&calltrace.call.to).unwrap_or_default() {
                         inspection.protocols.insert(Protocol::Balancer);
                     }
                     continue;

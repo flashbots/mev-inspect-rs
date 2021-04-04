@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS mev_inspections
     inserted_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TYPE call_classification AS ENUM ('unknown', 'deposit', 'withdrawal', 'transfer', 'trade', 'liquidation', 'addliquidation', 'swap');
+CREATE TYPE call_classification AS ENUM ('unknown', 'deposit', 'withdrawal', 'transfer', 'trade', 'liquidation', 'addliquidity', 'swap');
+
+CREATE TYPE call_type AS ENUM ('none', 'call', 'callcode', 'delegatecall', 'staticcall');
 
 -- internal call within the transactions trace
 CREATE TABLE IF NOT EXISTS internal_calls
@@ -29,6 +31,8 @@ CREATE TABLE IF NOT EXISTS internal_calls
     transaction_hash TEXT NOT NULL REFERENCES mev_inspections (hash) ON UPDATE CASCADE ON DELETE CASCADE,
     -- callgraph identifier
     trace_address    NUMERIC[],
+    -- what kind of call this is
+    call_type        call_type,
     -- transferred value in ETH
     value            NUMERIC,
     -- used gas limit
@@ -45,9 +49,17 @@ CREATE TABLE IF NOT EXISTS internal_calls
     classification   call_classification default 'unknown'
 );
 
+CREATE INDEX IF NOT EXISTS internal_calls_callee_class_idx ON internal_calls (callee, classification);
+CREATE INDEX IF NOT EXISTS internal_calls_caller_class_idx ON internal_calls (caller, classification);
+CREATE INDEX IF NOT EXISTS internal_calls_callee_idx ON internal_calls (callee);
+CREATE INDEX IF NOT EXISTS internal_calls_caller_idx ON internal_calls (caller);
+CREATE INDEX IF NOT EXISTS internal_calls_protocol_idx ON internal_calls (protocol);
+
 -- ethereum event logs
 CREATE TABLE IF NOT EXISTS event_logs
 (
+    -- who issued this event
+    address           TEXT,
     -- hash of the transaction this log occurred in
     transaction_hash      TEXT    not null,
     -- the first topic
@@ -67,6 +79,11 @@ CREATE TABLE IF NOT EXISTS event_logs
 
     PRIMARY KEY (transaction_hash, transaction_log_index)
 );
+
+CREATE INDEX IF NOT EXISTS event_logs_block_signature_idx ON event_logs (block_number, signature);
+CREATE INDEX IF NOT EXISTS event_logs_txs_idx ON event_logs (transaction_hash);
+CREATE INDEX IF NOT EXISTS event_logs_signature_idx ON event_logs (signature);
+CREATE INDEX IF NOT EXISTS event_logs_address_idx ON event_logs (signature);
 
 -- Addresses which should be ignored when used as the target of a transaction
 CREATE TABLE IF NOT EXISTS ignored_targets

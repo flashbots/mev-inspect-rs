@@ -1,6 +1,7 @@
-use crate::model::{CallClassification, InternalCall};
+use crate::model::{CallClassification, EventLog, InternalCall};
 use crate::types::{Inspection, Protocol};
 use ethers::prelude::BaseContract;
+use ethers::types::Address;
 use std::borrow::Cow;
 
 pub trait Reducer {
@@ -24,15 +25,24 @@ pub trait DefiProtocol {
     /// The identifier
     fn protocol() -> Protocol;
 
+    /// Whether it can be determined that the address is in fact a associated with the protocol
+    fn is_protocol(&self, address: &Address) -> Option<bool> {
+        None
+    }
+
     // fn is_protocol() -> bool;
 
-    /// Checks if the internal call's target can be attributed to the protocol and whether the call
-    /// can be classified
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification>;
-
-    fn classify_call_input(&self, input: &InternalCall) -> Option<CallClassification> {
+    /// Checks whether this event belongs to the protocol
+    fn is_protocol_event(&self, event: &EventLog) -> bool {
         todo!()
     }
+
+    /// Checks if the internal call's target can be attributed to the protocol and whether the call
+    /// can be classified.
+    ///
+    /// This only intends to classify the call as stand alone and without taking any context into
+    /// account.
+    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification>;
 }
 
 /// A wrapper for `Protocol`'s contracts with helper functions

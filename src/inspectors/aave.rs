@@ -36,6 +36,10 @@ impl DefiProtocol for Aave {
         Protocol::Aave
     }
 
+    fn is_protocol(&self, to: &Address) -> Option<bool> {
+        Some(*to == *AAVE_LENDING_POOL)
+    }
+
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
         self.pool
             .decode::<LiquidationCall, _>("liquidationCall", &call.input)

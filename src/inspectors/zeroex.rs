@@ -42,7 +42,10 @@ impl DefiProtocol for ZeroEx {
     }
 
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
-        todo!()
+        self.bridge
+            .decode::<BridgeTransfer, _>("bridgeTransferFrom", &call.input)
+            .ok()
+            .map(|_| CallClassification::Transfer)
     }
 }
 

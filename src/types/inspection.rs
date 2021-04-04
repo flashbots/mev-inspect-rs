@@ -146,6 +146,7 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
                         // find internal calls
                         inspection.internal_calls.push(InternalCall {
                             transaction_hash: trace.transaction_hash.expect("tx already included."),
+                            call_type: call.call_type.clone(),
                             trace_address: trace.trace_address.clone(),
                             value: call.value,
                             gas_used: call.gas,

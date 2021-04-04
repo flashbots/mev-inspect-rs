@@ -1,3 +1,4 @@
+use crate::model::{CallClassification, InternalCall};
 use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, PROTOCOLS},
     inspectors::find_matching,
@@ -8,15 +9,11 @@ use crate::{
     },
     DefiProtocol, ProtocolContracts,
 };
-
-use crate::model::{CallClassification, InternalCall};
-use ethers::{abi::Abi, contract::BaseContract};
 use ethers::{
     contract::decode_function_data,
+    contract::{abigen, BaseContract},
     types::{Address, Bytes, Call as TraceCall, CallType, U256},
 };
-
-// TODO convert these to EthAbiType
 
 // Type aliases for Uniswap's `swap` return types
 type SwapTokensFor = (U256, U256, Vec<Address>, Address, U256);
@@ -25,24 +22,36 @@ type PairSwap = (U256, U256, Address, Bytes);
 /// (tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin, to, deadline)
 /// See https://uniswap.org/docs/v2/smart-contracts/router02/#addliquidity
 type AddLiquidity = (Address, Address, U256, U256, U256, U256, Address, U256);
-//
-// /// (token, amountTokenDesired, amountTokenMin, amountETHMin, to, deadline)
-// /// See https://uniswap.org/docs/v2/smart-contracts/router02/#addliquidityeth
-// type AddLiquidityEth = (Address, U256, U256, U256, Address, U256);
-//
-// /// (tokenA, tokenB, liquidity, amountAMin, amountBMin, to, deadline)
-// /// See https://uniswap.org/docs/v2/smart-contracts/router02/#removeliquidity
-// type RemoveLiquidity = (Address, Address, U256, U256, U256, Address, U256);
-//
-// /// (tokenA, liquidity, amountTokenMin, amountETHMin, to, deadline)
-// /// See https://uniswap.org/docs/v2/smart-contracts/router02/#removeliquidityeth
-// type RemoveLiquidityEth = (Address, U256, U256, U256, Address, U256);
+
+/// (token, amountTokenDesired, amountTokenMin, amountETHMin, to, deadline)
+/// See https://uniswap.org/docs/v2/smart-contracts/router02/#addliquidityeth
+type AddLiquidityEth = (Address, U256, U256, U256, Address, U256);
+
+/// (tokenA, tokenB, liquidity, amountAMin, amountBMin, to, deadline)
+/// See https://uniswap.org/docs/v2/smart-contracts/router02/#removeliquidity
+type RemoveLiquidity = (Address, Address, U256, U256, U256, Address, U256);
+
+/// (tokenA, liquidity, amountTokenMin, amountETHMin, to, deadline)
+/// See https://uniswap.org/docs/v2/smart-contracts/router02/#removeliquidityeth
+type RemoveLiquidityEth = (Address, U256, U256, U256, Address, U256);
+
+abigen!(UniRouterV2, "abi/unirouterv2.json");
+abigen!(UniPair, "abi/unipair.json");
 
 #[derive(Debug, Clone)]
 /// An inspector for Uniswap
 pub struct Uniswap {
     router: BaseContract,
     pair: BaseContract,
+}
+
+impl Default for Uniswap {
+    fn default() -> Self {
+        Self {
+            router: BaseContract::from(UNIROUTERV2_ABI.clone()),
+            pair: BaseContract::from(UNIPAIR_ABI.clone()),
+        }
+    }
 }
 
 impl DefiProtocol for Uniswap {
@@ -55,7 +64,51 @@ impl DefiProtocol for Uniswap {
     }
 
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
-        todo!()
+        if self
+            .router
+            .decode::<AddLiquidity, _>("addLiquidity", &call.input)
+            .is_ok()
+            || self
+                .router
+                .decode::<AddLiquidityEth, _>("addLiquidityETH", &call.input)
+                .is_ok()
+        {
+            Some(CallClassification::AddLiquidity)
+        } else if self.is_swap_call(call) {
+            Some(CallClassification::Swap)
+        } else if self
+            .router
+            .decode::<RemoveLiquidity, _>("removeLiquidity", &call.input)
+            .is_ok()
+            || self
+                .router
+                .decode::<RemoveLiquidityEth, _>("removeLiquidityETH", &call.input)
+                .is_ok()
+        {
+            Some(CallClassification::Liquidation)
+        } else {
+            None
+        }
+    }
+}
+
+impl Uniswap {
+    pub fn is_swap_call(&self, call: &InternalCall) -> bool {
+        if self.pair.decode::<PairSwap, _>("swap", &call.input).is_ok() {
+            return true;
+        }
+        for function in self.router.as_ref().functions() {
+            if function.name.starts_with("swapETH") || function.name.starts_with("swapExactETH") {
+                if decode_function_data::<SwapEthFor, _>(function, &call.input, true).is_ok() {
+                    return true;
+                }
+            } else if function.name.starts_with("swap") {
+                if decode_function_data::<SwapTokensFor, _>(function, &call.input, true).is_ok() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -182,20 +235,6 @@ fn uniswappy(call: &TraceCall) -> Protocol {
 }
 
 impl Uniswap {
-    /// Constructor
-    pub fn new() -> Self {
-        Self {
-            router: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/unirouterv2.json"))
-                    .expect("could not parse uniswap abi")
-            }),
-            pair: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/unipair.json"))
-                    .expect("could not parse uniswap abi")
-            }),
-        }
-    }
-
     fn is_preflight(&self, call: &TraceCall) -> bool {
         // There's a function selector clash here with Aave's getReserves
         // function in the core, which we do not care about here
@@ -269,7 +308,7 @@ pub mod tests {
         fn new() -> Self {
             Self {
                 erc20: ERC20::new(),
-                uni: Uniswap::new(),
+                uni: Uniswap::default(),
                 trade: TradeReducer,
                 arb: ArbitrageReducer::new(),
             }

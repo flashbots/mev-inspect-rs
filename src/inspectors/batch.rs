@@ -267,6 +267,7 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                         .map(|tx| (tx.hash, tx.gas_price))
                         .collect::<HashMap<TxHash, U256>>();
 
+                    // tx -> logs
                     let mut tx_logs = logs
                         .into_iter()
                         .filter_map(|log| EventLog::try_from(log).ok())
@@ -404,7 +405,7 @@ mod tests {
         let inspector = BatchInspector::new(
             vec![
                 Box::new(ERC20::new()),
-                Box::new(Uniswap::new()),
+                Box::new(Uniswap::default()),
                 Box::new(Aave::new()),
                 Box::new(Curve::new(vec![])), // even though the Curve inspector is on, there's no Curve in the found protocols
             ],
@@ -454,7 +455,7 @@ mod tests {
         let inspector = BatchInspector::new(
             vec![
                 Box::new(ERC20::new()),
-                Box::new(Uniswap::new()),
+                Box::new(Uniswap::default()),
                 Box::new(Curve::new(vec![])),
                 Box::new(Balancer::default()),
             ],
@@ -486,7 +487,7 @@ mod tests {
         let inspector = BatchInspector::new(
             vec![
                 Box::new(ERC20::new()),
-                Box::new(Uniswap::new()),
+                Box::new(Uniswap::default()),
                 Box::new(Curve::new(vec![])),
                 Box::new(Balancer::default()),
             ],
@@ -516,7 +517,7 @@ mod tests {
         let inspector = BatchInspector::new(
             vec![
                 Box::new(ERC20::new()),
-                Box::new(Uniswap::new()),
+                Box::new(Uniswap::default()),
                 Box::new(Curve::new(vec![])),
             ],
             vec![Box::new(TradeReducer), Box::new(ArbitrageReducer::new())],
@@ -548,7 +549,7 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Aave::new()),
-                Box::new(Uniswap::new()),
+                Box::new(Uniswap::default()),
                 Box::new(Balancer::default()),
                 Box::new(ZeroEx::default()),
                 Box::new(Curve::new(vec![])),
@@ -578,7 +579,7 @@ mod tests {
                 Box::new(Aave::new()),
                 Box::new(ZeroEx::default()),
                 Box::new(Balancer::default()),
-                Box::new(Uniswap::new()),
+                Box::new(Uniswap::default()),
                 Box::new(Curve::new(vec![])),
             ],
             vec![
@@ -619,7 +620,7 @@ mod tests {
                 Box::new(Aave::new()),
                 Box::new(ZeroEx::default()),
                 Box::new(Balancer::default()),
-                Box::new(Uniswap::new()),
+                Box::new(Uniswap::default()),
                 Box::new(Curve::new(vec![])),
             ],
             vec![
@@ -658,7 +659,7 @@ mod tests {
         let mut inspection = read_trace("reverted_arb.json");
 
         let inspector = BatchInspector::new(
-            vec![Box::new(ERC20::new()), Box::new(Uniswap::new())],
+            vec![Box::new(ERC20::new()), Box::new(Uniswap::default())],
             vec![Box::new(TradeReducer), Box::new(ArbitrageReducer::new())],
         );
         inspector.inspect(&mut inspection);
@@ -682,7 +683,7 @@ mod tests {
         let mut inspection = read_trace("zapper1.json");
 
         let inspector = BatchInspector::new(
-            vec![Box::new(ERC20::new()), Box::new(Uniswap::new())],
+            vec![Box::new(ERC20::new()), Box::new(Uniswap::default())],
             vec![Box::new(TradeReducer), Box::new(ArbitrageReducer::new())],
         );
         inspector.inspect(&mut inspection);

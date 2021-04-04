@@ -10,7 +10,7 @@ use tokio_postgres::row::RowIndex;
 use tokio_postgres::Row;
 
 /// Helper trait to convert from `tokio_postgres::Row`
-pub trait FromSqlRow {
+pub trait SqlRowExt {
     /// create a type from the row
     fn from_row(row: &tokio_postgres::Row) -> Result<Self, DbError>
     where
@@ -94,7 +94,7 @@ pub struct ProtocolAddress {
     pub name: String,
 }
 
-impl FromSqlRow for ProtocolAddress {
+impl SqlRowExt for ProtocolAddress {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
         Self: Sized,
@@ -116,7 +116,7 @@ pub struct ProtocolJunctionAddress {
     pub info: String,
 }
 
-impl FromSqlRow for ProtocolJunctionAddress {
+impl SqlRowExt for ProtocolJunctionAddress {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
         Self: Sized,
@@ -139,7 +139,10 @@ pub enum CallClassification {
     Withdrawal,
     Transfer,
     Liquidation,
-    AddLiquidation,
+    AddLiquidity,
+    /// A swap
+    /// TODO clarify: may also be a flash swap, since "all swaps are actually flash swaps"
+    ///  https://uniswap.org/docs/v2/smart-contract-integration/using-flash-swaps/
     Swap,
 }
 
@@ -165,18 +168,20 @@ impl FromStr for CallClassification {
             "withdrawal" => Ok(CallClassification::Withdrawal),
             "transfer" => Ok(CallClassification::Transfer),
             "liquidation" => Ok(CallClassification::Liquidation),
-            "addliquidation" => Ok(CallClassification::AddLiquidation),
+            "addliquidity" => Ok(CallClassification::AddLiquidity),
             "swap" => Ok(CallClassification::Swap),
-            s => Err(format!("`{}` is nat a valid action type", s)),
+            s => Err(format!("`{}` is not a valid action type", s)),
         }
     }
 }
 
 /// Database model of an internal call within a transaction
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InternalCall {
     /// The hash of the transaction this event occurred in
     pub transaction_hash: TxHash,
+    /// What kind of call this was
+    pub call_type: CallType,
     /// The signature of the event
     pub trace_address: Vec<usize>,
     /// transferred value
@@ -195,7 +200,7 @@ pub struct InternalCall {
     pub classification: CallClassification,
 }
 
-impl FromSqlRow for InternalCall {
+impl SqlRowExt for InternalCall {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
         Self: Sized,
@@ -218,24 +223,55 @@ impl FromSqlRow for InternalCall {
         let to = row.try_get_address("callee")?;
         let classification = CallClassification::from_str(row.try_get("classification")?)
             .map_err(DbError::FromSqlError)?;
+        let call_type =
+            call_type_from_str(row.try_get("call_type")?).map_err(DbError::FromSqlError)?;
+
+        let protocol = if let Ok(proto) = row.try_get("protocol") {
+            Some(Protocol::from_str(proto).map_err(DbError::FromSqlError)?)
+        } else {
+            None
+        };
 
         Ok(Self {
             transaction_hash,
             trace_address,
+            call_type,
             value,
             gas_used,
             from,
             to,
-            protocol: None,
+            protocol,
             input: row.try_get("input")?,
             classification,
         })
+    }
+}
+fn call_type_from_str(s: &str) -> Result<CallType, String> {
+    match s {
+        "none" => Ok(CallType::None),
+        "call" => Ok(CallType::Call),
+        "callcode" => Ok(CallType::CallCode),
+        "delegatecall" => Ok(CallType::DelegateCall),
+        "staticcall" => Ok(CallType::StaticCall),
+        s => Err(format!("`{}` is nt a valid call type", s)),
+    }
+}
+
+fn call_type_to_str(call_type: &CallType) -> &'static str {
+    match call_type {
+        CallType::None => "none",
+        CallType::Call => "call",
+        CallType::CallCode => "callcode",
+        CallType::DelegateCall => "delegatecall",
+        CallType::StaticCall => "staticcall",
     }
 }
 
 /// Database model of an ethereum event
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct EventLog {
+    /// Who issued this event
+    pub address: Address,
     /// The hash of the transaction this event occurred in
     pub transaction_hash: TxHash,
     /// The signature of the event
@@ -273,9 +309,10 @@ impl TryFrom<Log> for EventLog {
         if topics.is_empty() {
             return Err(());
         }
-        let signature = topics[0].clone();
+        let signature = topics[0];
 
         Ok(Self {
+            address: value.address,
             transaction_hash: transaction_hash.ok_or(())?,
             signature,
             topics,
@@ -288,7 +325,7 @@ impl TryFrom<Log> for EventLog {
     }
 }
 
-impl FromSqlRow for EventLog {
+impl SqlRowExt for EventLog {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
         Self: Sized,
@@ -305,6 +342,7 @@ impl FromSqlRow for EventLog {
 
         let data: Vec<u8> = row.try_get("topics")?;
 
+        let address = row.try_get_address("address")?;
         let transaction_index = row.try_get_u64("transaction_index")?;
         let signature = row.try_get_h256("signature")?;
         let log_index = row.try_get_u256("log_index")?;
@@ -312,6 +350,7 @@ impl FromSqlRow for EventLog {
         let block_number = row.try_get_u64("block_number")?;
 
         Ok(Self {
+            address,
             transaction_hash,
             signature,
             topics,

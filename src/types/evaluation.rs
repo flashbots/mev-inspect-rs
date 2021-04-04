@@ -11,7 +11,7 @@ use ethers::{
 use std::collections::HashSet;
 
 use crate::mevdb::DbError;
-use crate::model::{FromSqlExt, FromSqlRow};
+use crate::model::{FromSqlExt, SqlRowExt};
 use crate::types::Protocol;
 use ethers::types::Address;
 use std::fmt;
@@ -176,7 +176,7 @@ impl Evaluation {
     }
 }
 
-impl FromSqlRow for Evaluation {
+impl SqlRowExt for Evaluation {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
         Self: Sized,

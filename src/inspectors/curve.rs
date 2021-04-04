@@ -9,12 +9,11 @@ use crate::{
 use crate::model::{CallClassification, InternalCall};
 use ethers::{
     abi::parse_abi,
-    contract::decode_function_data,
     contract::{abigen, ContractError},
+    contract::{decode_function_data, BaseContract},
     providers::Middleware,
-    types::{Address, Bytes, Call as TraceCall, U256},
+    types::{Address, Call as TraceCall, U256},
 };
-use ethers::{abi::Abi, contract::BaseContract};
 use std::collections::HashMap;
 
 // Type aliases for Curve
@@ -35,6 +34,7 @@ abigen!(
         find_pool_for_coins(address,address,uint256) as find_pool_for_coins2;
     }
 );
+abigen!(CurvePool, "abi/curvepool.json");
 
 impl DefiProtocol for Curve {
     fn base_contracts(&self) -> ProtocolContracts {
@@ -46,7 +46,8 @@ impl DefiProtocol for Curve {
     }
 
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
-        todo!()
+        self.as_add_liquidity(&call.to, &call.input)
+            .map(|_| CallClassification::Liquidation)
     }
 }
 
@@ -81,9 +82,7 @@ impl Curve {
     /// Constructor
     pub fn new<T: IntoIterator<Item = (Address, Vec<Address>)>>(pools: T) -> Self {
         Self {
-            pool: serde_json::from_str::<Abi>(include_str!("../../abi/curvepool.json"))
-                .expect("could not parse Curve 2-pool abi")
-                .into(),
+            pool: BaseContract::from(CURVEPOOL_ABI.clone()),
             pool4: parse_abi(&[
                 "function add_liquidity(uint256[4] calldata amounts, uint256 deadline) external",
             ])
@@ -93,7 +92,7 @@ impl Curve {
         }
     }
 
-    fn as_add_liquidity(&self, to: &Address, data: &Bytes) -> Option<AddLiquidity> {
+    fn as_add_liquidity(&self, to: &Address, data: impl AsRef<[u8]>) -> Option<AddLiquidity> {
         let tokens = self.pools.get(to)?;
         // adapter for Curve's pool-specific abi decoding
         // TODO: Do we need to add the tripool?
@@ -107,11 +106,8 @@ impl Curve {
                 .decode::<([U256; 4], U256), _>("add_liquidity", data)
                 .map(|x| x.0.to_vec()),
             _ => return None,
-        };
-        let amounts = match amounts {
-            Ok(tokens) => tokens,
-            Err(_) => return None,
-        };
+        }
+        .ok()?;
 
         Some(AddLiquidity {
             tokens: tokens.clone(),
