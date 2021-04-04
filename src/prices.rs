@@ -64,7 +64,7 @@ impl<M: Middleware> HistoricalPrice<M> {
         let amounts = self
             .uniswap
             .get_amounts_out(one, vec![token, *WETH])
-            .block(block)
+            .block(block.into())
             .call()
             .await?;
 
