@@ -5,25 +5,39 @@ use crate::{
 };
 
 use ethers::{
-    abi::parse_abi,
+    contract::abigen,
     contract::BaseContract,
     types::{Address, Bytes, U256},
 };
 
+abigen!(ZeroXUniswapBridge, "abi/0x-uniswap-bridge.json");
+abigen!(ZeroXExchange, "abi/0x-exchange-v3.json");
+
 #[derive(Debug, Clone)]
 /// An inspector for ZeroEx Exchange Proxy transfers
 pub struct ZeroEx {
+    exchange: BaseContract,
     bridge: BaseContract,
 }
 
 type BridgeTransfer = (Address, Address, Address, U256, Bytes);
 
-impl ZeroEx {
-    pub fn new() -> Self {
-        let bridge = BaseContract::from(
-            parse_abi(&[
-    "function bridgeTransferFrom(address tokenAddress, address from, address to, uint256 amount, bytes calldata bridgeData)"
-            ]).expect("could not parse bridge abi"));
+impl Default for ZeroEx {
+    fn default() -> Self {
+        let bridge = BaseContract::from(ZEROXUNISWAPBRIDGE_ABI.clone());
+        let exchange = BaseContract::from(ZEROXEXCHANGE_ABI.clone());
+        Self { bridge, exchange }
+    }
+}
+
+impl DefiProtocol for ZeroEx {
+    fn base_contracts(&self) -> ProtocolContracts {
+        ProtocolContracts::Dual(&self.exchange, &self.bridge)
+    }
+
+    fn protocol() -> Protocol {
+        Protocol::ZeroEx
+    }
 
         Self { bridge }
     }
@@ -104,7 +118,7 @@ mod tests {
 
         fn new() -> Self {
             Self {
-                zeroex: ZeroEx::new(),
+                zeroex: ZeroEx::default(),
                 erc20: ERC20::new(),
                 trade: TradeReducer,
                 arbitrage: ArbitrageReducer::new(),
