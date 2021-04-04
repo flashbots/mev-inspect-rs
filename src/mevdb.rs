@@ -472,7 +472,7 @@ mod tests {
     use ethers::types::{Address, TxHash};
     use std::collections::HashSet;
 
-    /// This expects postgres running on localhost:5432 with user `mev_rs_user` and table `mev_inspections_test`
+    /// This expects postgres running on localhost:5432 with user `postgres` and table `mev_inspections_test`
     #[tokio::test]
     async fn insert_eval() {
         let mut config = Config::default();
@@ -493,6 +493,7 @@ mod tests {
             hash: TxHash::zero(),
             block_number: 9,
             transaction_position: 0,
+            internal_calls: vec![],
         };
         let actions = [ActionType::Liquidation, ActionType::Arbitrage]
             .iter()
