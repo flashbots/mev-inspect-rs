@@ -3,13 +3,17 @@ use crate::{
     inspectors::find_matching,
     traits::Inspector,
     types::{actions::Trade, Classification, Inspection, Protocol},
+    DefiProtocol, ProtocolContracts,
 };
 
+use crate::model::{CallClassification, InternalCall};
 use ethers::{
-    abi::Abi,
-    contract::BaseContract,
+    contract::{abigen, BaseContract},
     types::{Address, Call as TraceCall, U256},
 };
+
+abigen!(BalancerPool, "abi/bpool.json");
+abigen!(BalancerProxy, "abi/bproxy.json");
 
 #[derive(Debug, Clone)]
 /// An inspector for Uniswap
@@ -18,7 +22,45 @@ pub struct Balancer {
     bproxy: BaseContract,
 }
 
+impl Balancer {
+    fn check(&self, call: &TraceCall) -> bool {
+        // TODO: Adjust for exchange proxy calls
+        call.to == *BALANCER_PROXY
+    }
+}
+
+impl Default for Balancer {
+    /// Constructor
+    fn default() -> Self {
+        Self {
+            bpool: BaseContract::from(BALANCERPOOL_ABI.clone()),
+            bproxy: BaseContract::from(BALANCERPROXY_ABI.clone()),
+        }
+    }
+}
+
 type Swap = (Address, U256, Address, U256, U256);
+
+impl DefiProtocol for Balancer {
+    fn base_contracts(&self) -> ProtocolContracts {
+        ProtocolContracts::Dual(&self.bpool, &self.bproxy)
+    }
+
+    fn protocol() -> Protocol {
+        Protocol::Balancer
+    }
+
+    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+        self.bpool
+            .decode::<Swap, _>("swapExactAmountIn", &call.input)
+            .ok()
+            .or(self
+                .bpool
+                .decode::<Swap, _>("swapExactAmountOut", &call.input)
+                .ok())
+            .map(|_| CallClassification::Swap)
+    }
+}
 
 impl Inspector for Balancer {
     fn inspect(&self, inspection: &mut Inspection) {
@@ -88,27 +130,6 @@ impl Inspector for Balancer {
     }
 }
 
-impl Balancer {
-    fn check(&self, call: &TraceCall) -> bool {
-        // TODO: Adjust for exchange proxy calls
-        call.to == *BALANCER_PROXY
-    }
-
-    /// Constructor
-    pub fn new() -> Self {
-        Self {
-            bpool: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/bpool.json"))
-                    .expect("could not parse uniswap abi")
-            }),
-            bproxy: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/bproxy.json"))
-                    .expect("could not parse uniswap abi")
-            }),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,7 +161,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 erc20: ERC20::new(),
-                balancer: Balancer::new(),
+                balancer: Balancer::default(),
                 trade: TradeReducer,
                 arb: ArbitrageReducer::new(),
             }

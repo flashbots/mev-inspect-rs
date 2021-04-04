@@ -5,7 +5,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use ethers::prelude::Middleware;
-use ethers::types::{Block, BlockNumber, Trace, Transaction, TransactionReceipt, TxHash, U256};
+use ethers::types::{
+    Block, BlockNumber, Filter, Log, Trace, Transaction, TransactionReceipt, TxHash, U256,
+};
 use futures::{
     stream::{self, FuturesUnordered},
     Stream, StreamExt, TryFutureExt,
@@ -14,11 +16,13 @@ use itertools::Itertools;
 use thiserror::Error;
 
 use crate::mevdb::BatchInserts;
+use crate::model::EventLog;
 use crate::types::{EvalError, Evaluation};
 use crate::{
     types::inspection::{Inspection, TraceWrapper},
     HistoricalPrice, Inspector, MevDB, Reducer,
 };
+use std::convert::TryFrom;
 use std::sync::Arc;
 
 /// Classifies traces according to the provided inspectors
@@ -57,7 +61,6 @@ impl BatchInspector {
     where
         T: IntoIterator<Item = Trace>,
     {
-        use std::convert::TryFrom;
         let mut res = None;
         if let Ok(mut i) = Inspection::try_from(TraceWrapper(traces)) {
             if !i.actions.is_empty() {
@@ -105,7 +108,15 @@ impl BatchInspector {
 async fn get_block_info<M: Middleware + Unpin + 'static>(
     provider: Arc<M>,
     block_number: u64,
-) -> Result<(Vec<Trace>, Block<Transaction>, Vec<TransactionReceipt>), BatchEvaluationError<M>> {
+) -> Result<
+    (
+        Vec<Trace>,
+        Block<Transaction>,
+        Vec<TransactionReceipt>,
+        Vec<Log>,
+    ),
+    BatchEvaluationError<M>,
+> {
     let traces = provider
         .trace_block(BlockNumber::Number(block_number.into()))
         .map_err(|error| BatchEvaluationError::Block {
@@ -130,14 +141,30 @@ async fn get_block_info<M: Middleware + Unpin + 'static>(
             error,
         });
 
-    futures::try_join!(traces, block, receipts)
+    let filter = Filter::new()
+        .from_block(block_number)
+        .to_block(block_number);
+    // this should be fine for <10k logs in a block, at infura
+    let logs = provider
+        .get_logs(&filter)
+        .map_err(|error| BatchEvaluationError::Block {
+            block_number,
+            error,
+        });
+
+    futures::try_join!(traces, block, receipts, logs)
 }
 
 type BlockStream<T> = Pin<
     Box<
         dyn Stream<
                 Item = Result<
-                    (Vec<Trace>, Block<Transaction>, Vec<TransactionReceipt>),
+                    (
+                        Vec<Trace>,
+                        Block<Transaction>,
+                        Vec<TransactionReceipt>,
+                        Vec<Log>,
+                    ),
                     BatchEvaluationError<T>,
                 >,
             > + Send,
@@ -232,13 +259,18 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
 
         while this.evaluations_queue.len() < this.max {
             match this.block_infos.as_mut().poll_next(cx) {
-                Poll::Ready(Some(Ok((traces, block, receipts)))) => {
+                Poll::Ready(Some(Ok((traces, block, receipts, logs)))) => {
                     log::trace!("fetched block infos for block {:?}", block.number);
                     let gas_price_txs = block
                         .transactions
                         .iter()
                         .map(|tx| (tx.hash, tx.gas_price))
                         .collect::<HashMap<TxHash, U256>>();
+
+                    let mut tx_logs = logs
+                        .into_iter()
+                        .filter_map(|log| EventLog::try_from(log).ok())
+                        .into_group_map_by(|log| log.transaction_hash);
 
                     let gas_used_txs = receipts
                         .into_iter()
@@ -255,6 +287,8 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                             .get(&inspection.hash)
                             .cloned()
                             .unwrap_or_default();
+
+                        let logs = tx_logs.remove(&inspection.hash).unwrap_or_default();
 
                         let gas_price = gas_price_txs
                             .get(&inspection.hash)
@@ -422,7 +456,7 @@ mod tests {
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Curve::new(vec![])),
-                Box::new(Balancer::new()),
+                Box::new(Balancer::default()),
             ],
             vec![Box::new(TradeReducer), Box::new(ArbitrageReducer::new())],
         );
@@ -454,7 +488,7 @@ mod tests {
                 Box::new(ERC20::new()),
                 Box::new(Uniswap::new()),
                 Box::new(Curve::new(vec![])),
-                Box::new(Balancer::new()),
+                Box::new(Balancer::default()),
             ],
             vec![Box::new(TradeReducer), Box::new(ArbitrageReducer::new())],
         );
@@ -515,8 +549,8 @@ mod tests {
                 Box::new(ERC20::new()),
                 Box::new(Aave::new()),
                 Box::new(Uniswap::new()),
-                Box::new(Balancer::new()),
-                Box::new(ZeroEx::new()),
+                Box::new(Balancer::default()),
+                Box::new(ZeroEx::default()),
                 Box::new(Curve::new(vec![])),
             ],
             vec![
@@ -542,8 +576,8 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Aave::new()),
-                Box::new(ZeroEx::new()),
-                Box::new(Balancer::new()),
+                Box::new(ZeroEx::default()),
+                Box::new(Balancer::default()),
                 Box::new(Uniswap::new()),
                 Box::new(Curve::new(vec![])),
             ],
@@ -583,8 +617,8 @@ mod tests {
             vec![
                 Box::new(ERC20::new()),
                 Box::new(Aave::new()),
-                Box::new(ZeroEx::new()),
-                Box::new(Balancer::new()),
+                Box::new(ZeroEx::default()),
+                Box::new(Balancer::default()),
                 Box::new(Uniswap::new()),
                 Box::new(Curve::new(vec![])),
             ],

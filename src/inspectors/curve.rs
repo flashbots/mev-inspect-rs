@@ -3,8 +3,10 @@ use crate::{
     addresses::CURVE_REGISTRY,
     traits::Inspector,
     types::{actions::AddLiquidity, Classification, Inspection, Protocol},
+    DefiProtocol, ProtocolContracts,
 };
 
+use crate::model::{CallClassification, InternalCall};
 use ethers::{
     abi::parse_abi,
     contract::decode_function_data,
@@ -33,6 +35,20 @@ abigen!(
         find_pool_for_coins(address,address,uint256) as find_pool_for_coins2;
     }
 );
+
+impl DefiProtocol for Curve {
+    fn base_contracts(&self) -> ProtocolContracts {
+        ProtocolContracts::Dual(&self.pool, &self.pool4)
+    }
+
+    fn protocol() -> Protocol {
+        Protocol::Curve
+    }
+
+    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+        todo!()
+    }
+}
 
 impl Inspector for Curve {
     fn inspect(&self, inspection: &mut Inspection) {

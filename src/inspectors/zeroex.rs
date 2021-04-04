@@ -2,8 +2,10 @@ use crate::{
     addresses::PROTOCOLS,
     traits::Inspector,
     types::{actions::Transfer, Classification, Inspection, Protocol},
+    DefiProtocol, ProtocolContracts,
 };
 
+use crate::model::{CallClassification, InternalCall};
 use ethers::{
     contract::abigen,
     contract::BaseContract,
@@ -39,7 +41,8 @@ impl DefiProtocol for ZeroEx {
         Protocol::ZeroEx
     }
 
-        Self { bridge }
+    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+        todo!()
     }
 }
 

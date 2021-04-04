@@ -6,8 +6,10 @@ use crate::{
         actions::{AddLiquidity as AddLiquidityAct, Trade},
         Classification, Inspection, Protocol, Status,
     },
+    DefiProtocol, ProtocolContracts,
 };
 
+use crate::model::{CallClassification, InternalCall};
 use ethers::{abi::Abi, contract::BaseContract};
 use ethers::{
     contract::decode_function_data,
@@ -41,6 +43,20 @@ type AddLiquidity = (Address, Address, U256, U256, U256, U256, Address, U256);
 pub struct Uniswap {
     router: BaseContract,
     pair: BaseContract,
+}
+
+impl DefiProtocol for Uniswap {
+    fn base_contracts(&self) -> ProtocolContracts {
+        ProtocolContracts::Dual(&self.pair, &self.router)
+    }
+
+    fn protocol() -> Protocol {
+        Protocol::Uniswap
+    }
+
+    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+        todo!()
+    }
 }
 
 impl Inspector for Uniswap {

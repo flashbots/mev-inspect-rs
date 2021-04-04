@@ -1,15 +1,18 @@
+use crate::model::{CallClassification, InternalCall};
 use crate::{
     addresses::AAVE_LENDING_POOL,
     types::{actions::Liquidation, Classification, Inspection, Protocol},
-    Inspector,
+    DefiProtocol, Inspector, ProtocolContracts,
 };
 use ethers::{
-    abi::Abi,
+    contract::abigen,
     contract::BaseContract,
     types::{Address, U256},
 };
 
 type LiquidationCall = (Address, Address, Address, U256, bool);
+
+abigen!(AavePool, "abi/aavepool.json");
 
 #[derive(Clone, Debug)]
 pub struct Aave {
@@ -19,11 +22,25 @@ pub struct Aave {
 impl Aave {
     pub fn new() -> Self {
         Aave {
-            pool: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/aavepool.json"))
-                    .expect("could not parse aave abi")
-            }),
+            pool: BaseContract::from(AAVEPOOL_ABI.clone()),
         }
+    }
+}
+
+impl DefiProtocol for Aave {
+    fn base_contracts(&self) -> ProtocolContracts {
+        ProtocolContracts::Single(&self.pool)
+    }
+
+    fn protocol() -> Protocol {
+        Protocol::Aave
+    }
+
+    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+        self.pool
+            .decode::<LiquidationCall, _>("liquidationCall", &call.input)
+            .map(|_| CallClassification::Liquidation)
+            .ok()
     }
 }
 

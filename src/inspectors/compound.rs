@@ -6,14 +6,16 @@ use crate::{
         actions::{Liquidation, SpecificAction},
         Classification, Inspection, Protocol, Status,
     },
+    DefiProtocol, ProtocolContracts,
 };
 use ethers::{
-    abi::{Abi, FunctionExt},
+    abi::FunctionExt,
     contract::{abigen, BaseContract, ContractError},
     providers::Middleware,
     types::{Address, Call, CallType, U256},
 };
 
+use crate::model::{CallClassification, InternalCall};
 use std::collections::HashMap;
 
 type LiquidateBorrow = (Address, U256, Address);
@@ -32,6 +34,7 @@ abigen!(
 );
 
 abigen!(CToken, "abi/ctoken.json",);
+abigen!(CEther, "abi/cether.json",);
 
 #[derive(Debug, Clone)]
 /// An inspector for Compound liquidations
@@ -40,6 +43,25 @@ pub struct Compound {
     cether: BaseContract,
     comptroller: BaseContract,
     ctoken_to_token: HashMap<Address, Address>,
+}
+
+impl DefiProtocol for Compound {
+    fn base_contracts(&self) -> ProtocolContracts {
+        use std::borrow::Cow::Borrowed;
+        ProtocolContracts::Multi(vec![
+            Borrowed(&self.ctoken),
+            Borrowed(&self.cether),
+            Borrowed(&self.comptroller),
+        ])
+    }
+
+    fn protocol() -> Protocol {
+        Protocol::Compound
+    }
+
+    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+        todo!()
+    }
 }
 
 impl Inspector for Compound {
@@ -85,18 +107,9 @@ impl Compound {
     /// Constructor
     pub fn new<T: IntoIterator<Item = (Address, Address)>>(ctoken_to_token: T) -> Self {
         Self {
-            ctoken: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/ctoken.json"))
-                    .expect("could not parse ctoken abi")
-            }),
-            cether: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/cether.json"))
-                    .expect("could not parse ctoken abi")
-            }),
-            comptroller: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/comptroller.json"))
-                    .expect("could not parse ctoken abi")
-            }),
+            ctoken: BaseContract::from(CTOKEN_ABI.clone()),
+            cether: BaseContract::from(CETHER_ABI.clone()),
+            comptroller: BaseContract::from(COMPTROLLER_ABI.clone()),
             ctoken_to_token: ctoken_to_token.into_iter().collect(),
         }
     }
