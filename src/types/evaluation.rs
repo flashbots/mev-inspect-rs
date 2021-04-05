@@ -224,7 +224,7 @@ impl SqlRowExt for Evaluation {
         Ok(Self {
             inspection: Inspection {
                 status,
-                actions: vec![],
+                actions: Vec::new(),
                 protocols,
                 from,
                 contract,
@@ -232,7 +232,8 @@ impl SqlRowExt for Evaluation {
                 hash,
                 block_number,
                 transaction_position,
-                internal_calls: vec![],
+                internal_calls: Vec::new(),
+                logs: Vec::new(),
             },
             gas_used,
             gas_price,

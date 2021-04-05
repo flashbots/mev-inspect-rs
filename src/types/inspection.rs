@@ -1,4 +1,4 @@
-use crate::model::InternalCall;
+use crate::model::{EventLog, InternalCall};
 use crate::{
     addresses::{DYDX, FILTER, ZEROX},
     types::{
@@ -45,6 +45,9 @@ pub struct Inspection {
 
     /// All internal calls non zero value
     pub internal_calls: Vec<InternalCall>,
+
+    /// All the events produced by this transaction
+    pub logs: Vec<EventLog>,
 }
 
 impl Inspection {
@@ -130,6 +133,7 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
             block_number: trace.block_number,
             transaction_position: trace.transaction_position.expect("Trace has position"),
             internal_calls: Vec::new(),
+            logs: Vec::new(),
         };
 
         inspection.actions = traces

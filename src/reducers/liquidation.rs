@@ -10,12 +10,6 @@ use crate::{
 
 pub struct LiquidationReducer;
 
-impl LiquidationReducer {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 impl Reducer for LiquidationReducer {
     fn reduce(&self, inspection: &mut Inspection) {
         let actions = inspection.actions.clone();
