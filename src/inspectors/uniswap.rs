@@ -1,3 +1,4 @@
+use crate::addresses::WETH;
 use crate::model::{CallClassification, InternalCall};
 use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, PROTOCOLS},
@@ -90,6 +91,28 @@ impl DefiProtocol for Uniswap {
             None
         }
     }
+
+    fn decode_add_liquidity(&self, call: &InternalCall) -> Option<AddLiquidityAct> {
+        if let Ok((token0, token1, amount0, amount1, _, _, _, _)) = self
+            .router
+            .decode::<AddLiquidity, _>("addLiquidity", &call.input)
+        {
+            Some(AddLiquidityAct {
+                tokens: vec![token0, token1],
+                amounts: vec![amount0, amount1],
+            })
+        } else if let Ok((token, amount0, _, amount_weth, _, _)) = self
+            .router
+            .decode::<AddLiquidityEth, _>("addLiquidityETH", &call.input)
+        {
+            Some(AddLiquidityAct {
+                tokens: vec![token, WETH.clone()],
+                amounts: vec![amount0, amount_weth],
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl Uniswap {
@@ -102,10 +125,10 @@ impl Uniswap {
                 if decode_function_data::<SwapEthFor, _>(function, &call.input, true).is_ok() {
                     return true;
                 }
-            } else if function.name.starts_with("swap") {
-                if decode_function_data::<SwapTokensFor, _>(function, &call.input, true).is_ok() {
-                    return true;
-                }
+            } else if function.name.starts_with("swap")
+                && decode_function_data::<SwapTokensFor, _>(function, &call.input, true).is_ok()
+            {
+                return true;
             }
         }
         false
@@ -310,7 +333,7 @@ pub mod tests {
                 erc20: ERC20::new(),
                 uni: Uniswap::default(),
                 trade: TradeReducer,
-                arb: ArbitrageReducer::new(),
+                arb: ArbitrageReducer::default(),
             }
         }
     }

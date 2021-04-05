@@ -28,7 +28,7 @@ impl Default for ZeroEx {
     fn default() -> Self {
         let bridge = BaseContract::from(ZEROXUNISWAPBRIDGE_ABI.clone());
         let exchange = BaseContract::from(ZEROXEXCHANGE_ABI.clone());
-        Self { bridge, exchange }
+        Self { exchange, bridge }
     }
 }
 
@@ -127,7 +127,7 @@ mod tests {
                 zeroex: ZeroEx::default(),
                 erc20: ERC20::new(),
                 trade: TradeReducer,
-                arbitrage: ArbitrageReducer::new(),
+                arbitrage: ArbitrageReducer::default(),
             }
         }
     }

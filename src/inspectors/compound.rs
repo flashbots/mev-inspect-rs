@@ -63,10 +63,11 @@ impl DefiProtocol for Compound {
         self.cether
             .decode::<LiquidateBorrowEth, _>("liquidateBorrow", &call.input)
             .map(|_| CallClassification::Liquidation)
-            .or(self
-                .ctoken
-                .decode::<LiquidateBorrow, _>("liquidateBorrow", &call.input)
-                .map(|_| CallClassification::Liquidation))
+            .or_else(|_| {
+                self.ctoken
+                    .decode::<LiquidateBorrow, _>("liquidateBorrow", &call.input)
+                    .map(|_| CallClassification::Liquidation)
+            })
             .ok()
     }
 }

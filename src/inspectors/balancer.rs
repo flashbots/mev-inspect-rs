@@ -51,12 +51,12 @@ impl DefiProtocol for Balancer {
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
         self.bpool
             .decode::<Swap, _>("swapExactAmountIn", &call.input)
-            .ok()
-            .or(self
-                .bpool
-                .decode::<Swap, _>("swapExactAmountOut", &call.input)
-                .ok())
+            .or_else(|_| {
+                self.bpool
+                    .decode::<Swap, _>("swapExactAmountOut", &call.input)
+            })
             .map(|_| CallClassification::Swap)
+            .ok()
     }
 }
 
@@ -161,7 +161,7 @@ mod tests {
                 erc20: ERC20::new(),
                 balancer: Balancer::default(),
                 trade: TradeReducer,
-                arb: ArbitrageReducer::new(),
+                arb: ArbitrageReducer::default(),
             }
         }
     }
