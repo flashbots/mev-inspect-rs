@@ -13,11 +13,11 @@ use thiserror::Error;
 use tokio_postgres::{config::Config, Client, NoTls};
 
 /// The SQL script to setup the database schema
-pub const DATABASE_MIGRATION_UP: &'static str =
+pub const DATABASE_MIGRATION_UP: &str =
     include_str!("../migrations/00000000000000_initial_setup/up.sql");
 
 /// The SQL script to drop all the database infra
-pub const DATABASE_MIGRATION_DOWN: &'static str =
+pub const DATABASE_MIGRATION_DOWN: &str =
     include_str!("../migrations/00000000000000_initial_setup/down.sql");
 
 /// Wrapper around PostGres for storing results in the database
