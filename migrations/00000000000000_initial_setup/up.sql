@@ -7,8 +7,9 @@ CREATE TABLE IF NOT EXISTS mev_inspections
     gas_price            NUMERIC,
     gas_used             NUMERIC,
     revenue              NUMERIC,
-
+    -- TODO remove because already in internal call?
     protocols            TEXT[],
+    -- TODO keep because this is the evaluation of the whole transaction?
     actions              TEXT[],
 
     eoa                  TEXT,
