@@ -98,11 +98,11 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
     let curve = Curve::create(provider.clone()).await?;
     let inspectors: Vec<Box<dyn Inspector + Send + Sync>> = vec![
         // Classify Transfers
-        Box::new(ZeroEx::new()),
+        Box::new(ZeroEx::default()),
         Box::new(ERC20::new()),
         // Classify AMMs
-        Box::new(Balancer::new()),
-        Box::new(Uniswap::new()),
+        Box::new(Balancer::default()),
+        Box::new(Uniswap::default()),
         Box::new(curve),
         // Classify Liquidations
         Box::new(Aave::new()),
@@ -110,9 +110,9 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
     ];
 
     let reducers: Vec<Box<dyn Reducer + Send + Sync>> = vec![
-        Box::new(LiquidationReducer::new()),
-        Box::new(TradeReducer::new()),
-        Box::new(ArbitrageReducer::new()),
+        Box::new(LiquidationReducer),
+        Box::new(TradeReducer),
+        Box::new(ArbitrageReducer),
     ];
     let processor = BatchInspector::new(inspectors, reducers);
 
@@ -319,8 +319,13 @@ async fn process_block<M: Middleware + 'static>(
         Evaluation::new(inspection, &prices, gas_used, gas_price)
     });
     for evaluation in futures::future::join_all(eval_futs).await {
-        if let Ok(evaluation) = evaluation {
-            db.insert(&evaluation).await?;
+        match evaluation {
+            Ok(evaluation) => {
+                db.insert(&evaluation).await?;
+            }
+            Err(err) => {
+                eprintln!("{:?}", err);
+            }
         }
     }
 
