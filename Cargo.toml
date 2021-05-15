@@ -13,15 +13,15 @@ anyhow = "1.0.40"
 
 # cached provider
 thiserror = "1.0.24"
-async-trait = "0.1.48"
-serde = "1.0.125"
+async-trait = "0.1.50"
+serde = "1.0.126"
 
 # postgres connection
-tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread"] }
-tokio-postgres = "0.7.0"
-rust_decimal = { version = "1.10.3", features = ["db-postgres", "db-tokio-postgres"] }
+tokio = { version = "1.5.0", features = ["macros", "rt-multi-thread"] }
+tokio-postgres = "0.7.2"
+rust_decimal = { version = "1.13.0", features = ["db-postgres", "db-tokio-postgres"] }
 gumdrop = "0.8.0"
-futures = "0.3.13"
+futures = "0.3.15"
 hex = "0.4.3"
 log = "0.4.14"
 pretty_env_logger = "0.4.0"
