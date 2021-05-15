@@ -38,6 +38,8 @@ type RemoveLiquidityEth = (Address, U256, U256, U256, Address, U256);
 
 abigen!(UniRouterV2, "abi/unirouterv2.json");
 abigen!(UniPair, "abi/unipair.json");
+abigen!(UniRouterV3, "abi/unirouterv3.json");
+abigen!(UniPoolV3, "abi/unipoolv3.json");
 
 #[derive(Debug, Clone)]
 /// An inspector for Uniswap
