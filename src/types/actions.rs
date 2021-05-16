@@ -38,42 +38,42 @@ impl From<AddLiquidity> for SpecificAction {
 }
 
 impl SpecificAction {
-    pub fn deposit(&self) -> Option<&Deposit> {
+    pub fn as_deposit(&self) -> Option<&Deposit> {
         match self {
             SpecificAction::WethDeposit(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn withdrawal(&self) -> Option<&Withdrawal> {
+    pub fn as_withdrawal(&self) -> Option<&Withdrawal> {
         match self {
             SpecificAction::WethWithdrawal(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn transfer(&self) -> Option<&Transfer> {
+    pub fn as_transfer(&self) -> Option<&Transfer> {
         match self {
             SpecificAction::Transfer(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn trade(&self) -> Option<&Trade> {
+    pub fn as_trade(&self) -> Option<&Trade> {
         match self {
             SpecificAction::Trade(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn arbitrage(&self) -> Option<&Arbitrage> {
+    pub fn as_arbitrage(&self) -> Option<&Arbitrage> {
         match self {
             SpecificAction::Arbitrage(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn liquidation(&self) -> Option<&Liquidation> {
+    pub fn as_liquidation(&self) -> Option<&Liquidation> {
         match self {
             SpecificAction::Liquidation(inner) => Some(inner),
             _ => None,
@@ -81,21 +81,21 @@ impl SpecificAction {
     }
 
     // TODO: Can we convert these to AsRef / AsMut Options somehow?
-    pub fn liquidation_mut(&mut self) -> Option<&mut Liquidation> {
+    pub fn as_liquidation_mut(&mut self) -> Option<&mut Liquidation> {
         match self {
             SpecificAction::Liquidation(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn profitable_liquidation(&self) -> Option<&ProfitableLiquidation> {
+    pub fn as_profitable_liquidation(&self) -> Option<&ProfitableLiquidation> {
         match self {
             SpecificAction::ProfitableLiquidation(inner) => Some(inner),
             _ => None,
         }
     }
 
-    pub fn add_liquidity(&self) -> Option<&AddLiquidity> {
+    pub fn as_add_liquidity(&self) -> Option<&AddLiquidity> {
         match self {
             SpecificAction::AddLiquidity(inner) => Some(inner),
             _ => None,

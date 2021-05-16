@@ -205,7 +205,7 @@ mod tests {
         let arb = inspection
             .known()
             .iter()
-            .find_map(|x| x.as_ref().arbitrage())
+            .find_map(|x| x.as_ref().as_arbitrage())
             .cloned()
             .unwrap();
         assert_eq!(arb.profit.to_string(), "45259140804");

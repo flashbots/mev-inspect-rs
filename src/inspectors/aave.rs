@@ -123,7 +123,7 @@ mod tests {
         let liquidation = inspection
             .known()
             .iter()
-            .find_map(|x| x.as_ref().liquidation())
+            .find_map(|x| x.as_ref().as_liquidation())
             .cloned()
             .unwrap();
 

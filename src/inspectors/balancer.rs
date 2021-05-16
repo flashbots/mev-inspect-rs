@@ -91,14 +91,14 @@ impl Inspector for Balancer {
                 // and the out asset is transferred _from_ the pair
                 let t1 = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.transfer(),
+                    |t| t.as_transfer(),
                     |t| t.token == token_in,
                     true,
                 );
 
                 let t2 = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.transfer(),
+                    |t| t.as_transfer(),
                     |t| t.token == token_out,
                     true,
                 );
@@ -175,18 +175,18 @@ mod tests {
         let known = inspection.known();
 
         assert_eq!(known.len(), 4);
-        let t1 = known[0].as_ref().transfer().unwrap();
+        let t1 = known[0].as_ref().as_transfer().unwrap();
         assert_eq!(
             t1.amount,
             U256::from_dec_str("134194492674651541324").unwrap()
         );
-        let trade = known[1].as_ref().trade().unwrap();
+        let trade = known[1].as_ref().as_trade().unwrap();
         assert_eq!(
             trade.t1.amount,
             U256::from_dec_str("7459963749616500736").unwrap()
         );
-        let _t2 = known[2].as_ref().transfer().unwrap();
-        let _t3 = known[3].as_ref().transfer().unwrap();
+        let _t2 = known[2].as_ref().as_transfer().unwrap();
+        let _t3 = known[3].as_ref().as_transfer().unwrap();
     }
 
     #[test]
@@ -198,7 +198,7 @@ mod tests {
         let known = inspection.known();
 
         assert_eq!(known.len(), 3);
-        let trade = known[0].as_ref().trade().unwrap();
+        let trade = known[0].as_ref().as_trade().unwrap();
         assert_eq!(
             trade.t1.amount,
             U256::from_dec_str("1882725882636").unwrap()
@@ -211,9 +211,9 @@ mod tests {
         assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "COMP",);
 
         // 2 comp payouts
-        let t1 = known[1].as_ref().transfer().unwrap();
+        let t1 = known[1].as_ref().as_transfer().unwrap();
         assert_eq!(ADDRESSBOOK.get(&t1.token).unwrap(), "COMP",);
-        let t2 = known[2].as_ref().transfer().unwrap();
+        let t2 = known[2].as_ref().as_transfer().unwrap();
         assert_eq!(ADDRESSBOOK.get(&t2.token).unwrap(), "COMP",);
     }
 }

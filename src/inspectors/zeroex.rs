@@ -147,20 +147,20 @@ mod tests {
 
         assert_eq!(known.len(), 3);
         // transfer in
-        let t1 = known[0].as_ref().transfer().unwrap();
+        let t1 = known[0].as_ref().as_transfer().unwrap();
         assert_eq!(
             t1.amount,
             U256::from_dec_str("1000000000000000000000").unwrap()
         );
 
         // balancer trade out
-        let balancer = known[1].as_ref().trade().unwrap();
+        let balancer = known[1].as_ref().as_trade().unwrap();
         assert_eq!(
             balancer.t1.amount,
             U256::from_dec_str("384007192433857968681").unwrap()
         );
 
-        let uniswap = known[2].as_ref().trade().unwrap();
+        let uniswap = known[2].as_ref().as_trade().unwrap();
         assert_eq!(
             uniswap.t1.amount,
             U256::from_dec_str("622513125832506272941").unwrap()

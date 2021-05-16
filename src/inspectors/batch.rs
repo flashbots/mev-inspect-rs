@@ -424,7 +424,7 @@ mod tests {
 
         let liquidation = known
             .iter()
-            .find_map(|action| action.as_ref().profitable_liquidation())
+            .find_map(|action| action.as_ref().as_profitable_liquidation())
             .unwrap();
         assert_eq!(
             liquidation.profit,
@@ -471,7 +471,7 @@ mod tests {
         let known = inspection.known();
         let arb = known
             .iter()
-            .find_map(|action| action.as_ref().arbitrage())
+            .find_map(|action| action.as_ref().as_arbitrage())
             .unwrap();
         assert_eq!(arb.profit, U256::from_dec_str("41108016724856778").unwrap());
         assert_eq!(arb.token, *WETH);
@@ -506,7 +506,7 @@ mod tests {
         let known = inspection.known();
         let arb = known
             .iter()
-            .find_map(|action| action.as_ref().arbitrage())
+            .find_map(|action| action.as_ref().as_arbitrage())
             .unwrap();
         assert_eq!(arb.profit, U256::from_dec_str("47597234528640869").unwrap());
         assert_eq!(arb.token, *WETH);
@@ -539,7 +539,7 @@ mod tests {
 
         let arb = known
             .iter()
-            .find_map(|action| action.as_ref().arbitrage())
+            .find_map(|action| action.as_ref().as_arbitrage())
             .unwrap();
         assert_eq!(arb.profit, U256::from_dec_str("14397525374450478").unwrap());
         assert_eq!(arb.token, *WETH);
@@ -609,7 +609,7 @@ mod tests {
         );
         let liquidation = known
             .iter()
-            .find_map(|action| action.as_ref().profitable_liquidation())
+            .find_map(|action| action.as_ref().as_profitable_liquidation())
             .unwrap();
         assert_eq!(
             liquidation.profit,
@@ -650,7 +650,7 @@ mod tests {
         );
         let liquidation = known
             .iter()
-            .find_map(|action| action.as_ref().liquidation())
+            .find_map(|action| action.as_ref().as_liquidation())
             .unwrap();
         assert_eq!(ADDRESSBOOK.get(&liquidation.sent_token).unwrap(), "BAT");
         assert_eq!(ADDRESSBOOK.get(&liquidation.received_token).unwrap(), "DAI");
@@ -681,7 +681,7 @@ mod tests {
         let arb = inspection
             .known()
             .iter()
-            .find_map(|x| x.as_ref().arbitrage())
+            .find_map(|x| x.as_ref().as_arbitrage())
             .cloned()
             .unwrap();
         assert_eq!(arb.profit.to_string(), "101664758086906735");
@@ -709,7 +709,7 @@ mod tests {
         let trade = inspection
             .known()
             .iter()
-            .find_map(|x| x.as_ref().trade())
+            .find_map(|x| x.as_ref().as_trade())
             .cloned()
             .unwrap();
         assert_eq!(trade.t1.amount.to_string(), "1101651860618174754");
@@ -719,7 +719,7 @@ mod tests {
         let add_liquidity = inspection
             .known()
             .iter()
-            .find_map(|x| x.as_ref().add_liquidity())
+            .find_map(|x| x.as_ref().as_add_liquidity())
             .cloned()
             .unwrap();
         assert_eq!(

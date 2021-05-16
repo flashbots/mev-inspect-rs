@@ -17,7 +17,7 @@ impl Reducer for TradeReducer {
             .for_each(|(i, action)| {
                 // check if we got a transfer
                 let transfer =
-                    if let Some(transfer) = action.as_action().map(|x| x.transfer()).flatten() {
+                    if let Some(transfer) = action.as_action().map(|x| x.as_transfer()).flatten() {
                         transfer
                     } else {
                         return;
@@ -26,7 +26,7 @@ impl Reducer for TradeReducer {
                 // find the first transfer after it
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.transfer(),
+                    |t| t.as_transfer(),
                     |t| t.to == transfer.from && t.from == transfer.to && t.token != transfer.token,
                     true,
                 );
@@ -50,7 +50,7 @@ impl Reducer for TradeReducer {
                     // If there is no follow-up transfer that uses `transfer2`, prune it:
                     let res = find_matching(
                         actions.iter().enumerate().skip(j + 1),
-                        |t| t.transfer(),
+                        |t| t.as_transfer(),
                         |t| t.to == transfer2.from && t.from == transfer2.to,
                         false,
                     );

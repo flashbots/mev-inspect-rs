@@ -26,7 +26,7 @@ impl Reducer for LiquidationReducer {
             .for_each(|(i, ref mut action)| {
                 let opt = action
                     .as_action_mut()
-                    .map(|x| x.liquidation_mut())
+                    .map(|x| x.as_liquidation_mut())
                     .flatten();
                 let liquidation = if let Some(liquidation) = opt {
                     liquidation
@@ -43,7 +43,7 @@ impl Reducer for LiquidationReducer {
                 // found the transfer after, which is the one that pays us
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.transfer(),
+                    |t| t.as_transfer(),
                     check_fn,
                     true,
                 );
@@ -56,7 +56,7 @@ impl Reducer for LiquidationReducer {
                     // or not
                     let res = find_matching(
                         actions.iter().enumerate(),
-                        |t| t.trade(),
+                        |t| t.as_trade(),
                         |t| t.t2.token == liq.sent_token,
                         true,
                     );

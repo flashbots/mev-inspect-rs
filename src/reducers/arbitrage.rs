@@ -20,7 +20,8 @@ impl Reducer for ArbitrageReducer {
             .enumerate()
             .for_each(|(i, action)| {
                 // check if we got a trade
-                let trade = if let Some(trade) = action.as_action().map(|x| x.trade()).flatten() {
+                let trade = if let Some(trade) = action.as_action().map(|x| x.as_trade()).flatten()
+                {
                     trade
                 } else {
                     return;
@@ -28,7 +29,7 @@ impl Reducer for ArbitrageReducer {
 
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.trade(),
+                    |t| t.as_trade(),
                     |t| t.t2.token == trade.t1.token,
                     true,
                 );

@@ -182,7 +182,7 @@ impl Inspector for Uniswap {
                         // Iterate backwards
                         actions.iter().enumerate().rev().skip(actions.len() - i),
                         // Get a transfer
-                        |t| t.transfer(),
+                        |t| t.as_transfer(),
                         // We just want the first transfer, no need to filter for anything
                         |_| true,
                         // `check_all=true` because there might be other known calls
@@ -194,7 +194,7 @@ impl Inspector for Uniswap {
                         let res = find_matching(
                             actions.iter().enumerate().skip(i + 1),
                             // Get a transfer
-                            |t| t.transfer(),
+                            |t| t.as_transfer(),
                             // We just want the first transfer, no need to filter for anything
                             |_| true,
                             // `check_all = false` because the first known external call
@@ -355,7 +355,7 @@ pub mod tests {
             let known = inspection.known();
             assert_eq!(known.len(), 3);
 
-            let arb = known[1].as_ref().arbitrage().unwrap();
+            let arb = known[1].as_ref().as_arbitrage().unwrap();
             assert!(arb.profit == U256::from_dec_str("626678385524850545").unwrap());
 
             // the initial call and the delegate call
@@ -376,10 +376,10 @@ pub mod tests {
 
             let known = inspection.known();
 
-            assert!(known[0].as_ref().deposit().is_some());
-            let arb = known[1].as_ref().arbitrage().unwrap();
+            assert!(known[0].as_ref().as_deposit().is_some());
+            let arb = known[1].as_ref().as_arbitrage().unwrap();
             assert_eq!(arb.profit, U256::from_dec_str("23939671034095067").unwrap());
-            assert!(known[2].as_ref().withdrawal().is_some());
+            assert!(known[2].as_ref().as_withdrawal().is_some());
             assert_eq!(inspection.unknown().len(), 10);
         }
 
@@ -393,7 +393,7 @@ pub mod tests {
 
             let known = inspection.known();
 
-            let arb = known[0].as_ref().arbitrage().unwrap();
+            let arb = known[0].as_ref().as_arbitrage().unwrap();
             assert_eq!(arb.profit, U256::from_dec_str("9196963592118237").unwrap());
 
             assert_eq!(inspection.known().len(), 1);
@@ -410,7 +410,7 @@ pub mod tests {
         uni.inspect(&mut inspection);
         assert_eq!(inspection.status, Status::Checked); // This is a check
         let known = inspection.known();
-        let transfer = known[0].as_ref().transfer().unwrap();
+        let transfer = known[0].as_ref().as_transfer().unwrap();
         assert_eq!(ADDRESSBOOK.get(&transfer.token).unwrap(), "ETH");
     }
 
@@ -477,18 +477,18 @@ pub mod tests {
         let known = inspection.known();
 
         assert_eq!(known.len(), 4);
-        let t1 = known[0].as_ref().transfer().unwrap();
+        let t1 = known[0].as_ref().as_transfer().unwrap();
         assert_eq!(
             t1.amount,
             U256::from_dec_str("155025667786800022191").unwrap()
         );
-        let trade = known[1].as_ref().trade().unwrap();
+        let trade = known[1].as_ref().as_trade().unwrap();
         assert_eq!(
             trade.t1.amount,
             U256::from_dec_str("28831175112148480867").unwrap()
         );
-        let _t2 = known[2].as_ref().transfer().unwrap();
-        let _t3 = known[3].as_ref().transfer().unwrap();
+        let _t2 = known[2].as_ref().as_transfer().unwrap();
+        let _t3 = known[3].as_ref().as_transfer().unwrap();
     }
 
     mod simple_transfers {
@@ -504,14 +504,14 @@ pub mod tests {
 
             let known = inspection.known();
 
-            let transfer = known[0].as_ref().transfer().unwrap();
+            let transfer = known[0].as_ref().as_transfer().unwrap();
             assert_eq!(ADDRESSBOOK.get(&transfer.token).unwrap(), "ETH");
 
-            let deposit = known[1].as_ref().deposit();
+            let deposit = known[1].as_ref().as_deposit();
             assert!(deposit.is_some());
 
             // Second is the trade
-            let trade = known[2].as_ref().trade().unwrap();
+            let trade = known[2].as_ref().as_trade().unwrap();
             assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "WETH");
             assert_eq!(trade.t1.amount, 664510977762648404u64.into());
             assert_eq!(
@@ -520,7 +520,7 @@ pub mod tests {
             );
 
             // Third is the ETH refund
-            let transfer = known[3].as_ref().transfer().unwrap();
+            let transfer = known[3].as_ref().as_transfer().unwrap();
             assert_eq!(ADDRESSBOOK.get(&transfer.token).unwrap(), "ETH");
 
             assert_eq!(inspection.status, Status::Success);
@@ -539,17 +539,17 @@ pub mod tests {
 
             // The router makes the first action by transferFrom'ing the tokens we're
             // sending in
-            let trade = known[0].as_ref().trade().unwrap();
+            let trade = known[0].as_ref().as_trade().unwrap();
             assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "WETH");
 
             assert_eq!(inspection.known().len(), 3);
             assert_eq!(inspection.unknown().len(), 2);
 
-            let withdrawal = known[1].as_ref().withdrawal();
+            let withdrawal = known[1].as_ref().as_withdrawal();
             assert!(withdrawal.is_some());
 
             // send the eth to the buyer
-            let transfer = known[2].as_ref().transfer().unwrap();
+            let transfer = known[2].as_ref().as_transfer().unwrap();
             assert_eq!(ADDRESSBOOK.get(&transfer.token).unwrap(), "ETH");
 
             assert_eq!(inspection.status, Status::Success);
@@ -565,7 +565,7 @@ pub mod tests {
             assert_eq!(inspection.status, Status::Success);
 
             let known = inspection.known();
-            let trade = known[0].as_ref().trade().unwrap();
+            let trade = known[0].as_ref().as_trade().unwrap();
             assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "YFI");
             assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "WETH");
             assert_eq!(inspection.known().len(), 1);
@@ -585,13 +585,13 @@ pub mod tests {
             assert_eq!(known.len(), 3);
             assert_eq!(inspection.unknown().len(), 2);
 
-            let transfer = known[0].as_ref().transfer().unwrap();
+            let transfer = known[0].as_ref().as_transfer().unwrap();
             assert_eq!(ADDRESSBOOK.get(&transfer.token).unwrap(), "ETH");
 
-            let deposit = known[1].as_ref().deposit();
+            let deposit = known[1].as_ref().as_deposit();
             assert!(deposit.is_some());
 
-            let trade = known[2].as_ref().trade().unwrap();
+            let trade = known[2].as_ref().as_trade().unwrap();
             assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "WETH");
             assert_eq!(
                 trade.t1.amount,
