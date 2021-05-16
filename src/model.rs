@@ -1,6 +1,7 @@
 //! Database model types
 use crate::mevdb::DbError;
 use crate::types::Protocol;
+use ethers::abi::RawLog;
 use ethers::types::*;
 use rust_decimal::prelude::{FromStr, ToPrimitive};
 use rust_decimal::Decimal;
@@ -268,7 +269,7 @@ fn call_type_to_str(call_type: &CallType) -> &'static str {
 }
 
 /// Database model of an ethereum event
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct EventLog {
     /// Who issued this event
     pub address: Address,
@@ -276,10 +277,8 @@ pub struct EventLog {
     pub transaction_hash: TxHash,
     /// The signature of the event
     pub signature: H256,
-    /// all topics, including signature at index 0
-    pub topics: Vec<H256>,
-    /// all the other data of the log
-    pub data: Vec<u8>,
+    /// The raw Ethereum log
+    pub raw_log: RawLog,
     /// the index of the log's transaction in the block
     pub transaction_index: u64,
     /// log position within the block
@@ -315,8 +314,10 @@ impl TryFrom<Log> for EventLog {
             address: value.address,
             transaction_hash: transaction_hash.ok_or(())?,
             signature,
-            topics,
-            data: data.to_vec(),
+            raw_log: RawLog {
+                topics,
+                data: data.to_vec(),
+            },
             transaction_index: transaction_index.ok_or(())?.as_u64(),
             log_index: log_index.ok_or(())?,
             transaction_log_index: transaction_log_index.ok_or(())?,
@@ -353,8 +354,7 @@ impl SqlRowExt for EventLog {
             address,
             transaction_hash,
             signature,
-            topics,
-            data,
+            raw_log: RawLog { topics, data },
             transaction_index,
             log_index,
             transaction_log_index,
