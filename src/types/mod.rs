@@ -1,9 +1,9 @@
 //! All the datatypes associated with MEV-Inspect
 use std::fmt;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
-use ethers::types::{Address, U256};
+use ethers::types::{Address, TxHash, U256};
 
 pub use classification::Classification;
 pub use evaluation::{EvalError, Evaluation};
@@ -139,75 +139,173 @@ impl FromStr for Protocol {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum InspectionState {
-    Resolved,
-    UnResolved,
+/// An `EventLog` that can be assigned to a call
+#[derive(Debug, Clone)]
+pub struct TransactionLog {
+    pub inner: EventLog,
+    /// The trace of the call this event is assigned to
+    assigned_to_call: Option<Vec<usize>>,
 }
 
-impl InspectionState {
-    fn is_unresolved(&self) -> bool {
-        matches!(self, InspectionState::UnResolved)
+impl TransactionLog {
+    /// Assign this log to the call identified by the given trace address
+    pub fn assign_to(&mut self, trace_address: Vec<usize>) -> Option<Vec<usize>> {
+        self.assigned_to_call.replace(trace_address)
     }
-    fn is_resolved(&self) -> bool {
-        !self.is_unresolved()
+
+    /// Remove the trace address of the assigned call, if there is one
+    pub fn un_assign(&mut self) -> Option<Vec<usize>> {
+        self.assigned_to_call.take()
+    }
+
+    /// Whether this event is assigned to a call
+    pub fn is_assigned(&self) -> bool {
+        self.assigned_to_call.is_some()
+    }
+
+    /// Returns the trace address of the call this event is assigned to
+    pub fn assigned_call(&self) -> Option<&Vec<usize>> {
+        self.assigned_to_call.as_ref()
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Data<'a, T> {
-    inner: &'a T,
-    index: usize,
+impl AsRef<U256> for TransactionLog {
+    fn as_ref(&self) -> &U256 {
+        &self.log_index
+    }
 }
 
-impl<'a, T> Deref for Data<'a, T> {
-    type Target = T;
+impl Deref for TransactionLog {
+    type Target = EventLog;
 
     fn deref(&self) -> &Self::Target {
-        self.inner
+        &self.inner
     }
 }
 
-/// to detect trades: all Internal calls
+impl DerefMut for TransactionLog {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+/// To detect trades: all Internal calls
+// TODO drop `Inspection` in favor of this model?
 #[derive(Debug, Clone)]
-pub struct TransactionData<'a> {
+pub struct TransactionData {
+    /// Success / failure
+    pub status: Status,
+
+    // Who
+    /// The sender of the transaction
     pub from: Address,
+
+    /// The first receiver of this tx, the contract being interacted with. In case
+    /// of sophisticated bots, this will be the bot's contract logic.
     pub contract: Address,
-    // TODO wrap this in an Refcell to simply call .resolve()?
-    logs: BTreeMap<U256, (&'a EventLog, InspectionState)>,
-    calls: BTreeMap<Vec<usize>, (&'a InternalCall, InspectionState)>,
+
+    ///// The protocol of the `contract`
+    pub protocol: Option<Protocol>,
+
+    /// If this is set, then the `contract` was a proxy and the actual logic is
+    /// in this address
+    pub proxy_impl: Option<Address>,
+
+    //////  When
+    /// The trace's tx hash
+    pub hash: TxHash,
+
+    /// The block number of this tx
+    pub block_number: u64,
+
+    /// Transaction position
+    pub transaction_position: usize,
+
+    /// log_index  -> Log
+    logs: BTreeMap<U256, TransactionLog>,
+    /// All internal calls sorted by trace
+    calls: BTreeMap<Vec<usize>, InternalCall>,
+    /// classifications of this transactions
     classifications: Vec<Classification>,
 }
 
-impl<'a> TransactionData<'a> {
-    /// All the logs that are not resolved yet
-    pub fn logs(&'a self) -> impl Iterator<Item = &'a EventLog> {
+impl TransactionData {
+    pub fn new(inspection: &Inspection) -> Self {
+        todo!()
+    }
+
+    /// All the logs that are not assigned to a call yet
+    pub fn logs(&self) -> impl Iterator<Item = &TransactionLog> {
+        self.logs.values().filter(|log| !log.is_assigned())
+    }
+
+    /// All the logs that are assigned to a call
+    pub fn assigned_logs(&self) -> impl Iterator<Item = (&Vec<usize>, &EventLog)> {
         self.logs
             .values()
-            .filter_map(|(event, state)| state.is_unresolved().then(|| *event))
+            .filter_map(|log| log.assigned_call().map(|trace| (trace, &log.inner)))
+    }
+
+    /// All the logs
+    pub fn all_logs(&self) -> impl Iterator<Item = &TransactionLog> {
+        self.logs.values()
+    }
+
+    /// All the logs that are not resolved yet and issued by the given address
+    pub fn logs_from(&self, address: Address) -> impl Iterator<Item = &TransactionLog> {
+        self.logs().filter(move |log| log.address == address)
+    }
+
+    /// All the calls that are still unknown
+    pub fn calls(&self) -> impl Iterator<Item = &InternalCall> {
+        self.calls
+            .values()
+            .filter_map(|call| call.classification.is_unknown().then(|| call))
     }
 
     /// All the calls that are not resolved yet
-    pub fn calls(&'a self) -> impl Iterator<Item = &'a InternalCall> {
+    pub fn calls_mut(&mut self) -> impl Iterator<Item = &mut InternalCall> {
         self.calls
-            .values()
-            .filter_map(|(call, state)| state.is_unresolved().then(|| *call))
+            .values_mut()
+            .filter_map(|call| call.classification.is_unknown().then(|| call))
     }
 
-    /// All logs that occurred after the log
-    pub fn logs_after(&'a self, log: &'a EventLog) -> impl Iterator<Item = &'a EventLog> {
-        self.logs().filter(move |c| c.log_index > log.log_index)
+    /// All unassigned logs that occurred after the log
+    pub fn logs_after(&self, log_index: impl AsRef<U256>) -> impl Iterator<Item = &TransactionLog> {
+        let index = *log_index.as_ref();
+        self.logs().filter(move |c| c.log_index > index)
     }
 
-    /// All logs prior to log
-    pub fn logs_prior(&'a self, log: &'a EventLog) -> impl Iterator<Item = &'a EventLog> {
-        self.logs().filter(move |c| c.log_index < log.log_index)
+    /// All unassigned logs prior to log
+    pub fn logs_prior(&self, log_index: impl AsRef<U256>) -> impl Iterator<Item = &TransactionLog> {
+        let index = *log_index.as_ref();
+        self.logs().filter(move |c| c.log_index < index)
     }
 
-    /// Iterate over all the subcalls
-    pub fn subcalls(&'a self, call: &'a InternalCall) -> impl Iterator<Item = &'a InternalCall> {
+    /// Returns an iterator over all logs that are assigned to sub calls of the call assigned to the log with the given index.
+    pub fn sub_logs(
+        &self,
+        log_index: impl AsRef<U256>,
+    ) -> impl Iterator<Item = (&Vec<usize>, &EventLog)> {
+        let index = *log_index.as_ref();
+        let mut trace = None;
+        self.assigned_logs()
+            .skip_while(move |(t, log)| {
+                if log.log_index == index {
+                    trace = Some(*t);
+                }
+                trace.is_none()
+            })
+            .skip(1)
+            .filter(move |(t2, _)| is_subtrace(trace.as_ref().expect("exists; qed"), t2))
+    }
+
+    /// Iterate over all the call's subcalls
+    pub fn subcalls<'a: 'b, 'b>(
+        &'a self,
+        t1: &'b [usize],
+    ) -> impl Iterator<Item = &'a InternalCall> + 'b {
         self.calls().filter(move |c| {
-            let t1 = &call.trace_address;
             let t2 = &c.trace_address;
             if t2 == t1 {
                 false
@@ -215,31 +313,6 @@ impl<'a> TransactionData<'a> {
                 is_subtrace(t1, t2)
             }
         })
-    }
-
-    /// Mark the call as resolved so that it can't be classified anymore
-    pub fn resolve_call(&mut self, call: &'a InternalCall) {
-        if let Some((_, state)) = self.calls.get_mut(&call.trace_address) {
-            *state = InspectionState::Resolved
-        }
-    }
-
-    pub fn resolve_calls(&mut self, calls: impl IntoIterator<Item = &'a InternalCall>) {
-        for call in calls {
-            self.resolve_call(call)
-        }
-    }
-
-    pub fn resolve_log(&mut self, logs: &'a EventLog) {
-        if let Some((_, state)) = self.logs.get_mut(&logs.log_index) {
-            *state = InspectionState::Resolved
-        }
-    }
-
-    pub fn resolve_logs(&mut self, logs: impl IntoIterator<Item = &'a EventLog>) {
-        for log in logs {
-            self.resolve_log(log)
-        }
     }
 
     pub fn push_classification(&mut self, c: Classification) {

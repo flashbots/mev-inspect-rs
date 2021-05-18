@@ -17,6 +17,7 @@ pub struct Inspection {
 
     //////  What
     /// All the classified / unclassified actions that happened
+    // TODO drop in favor of internalvall?
     pub actions: Vec<Classification>,
 
     ///// Where

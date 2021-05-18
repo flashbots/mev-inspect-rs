@@ -141,10 +141,19 @@ pub enum CallClassification {
     Transfer,
     Liquidation,
     AddLiquidity,
+    Repay,
+    Borrow,
     /// A swap
     /// TODO clarify: may also be a flash swap, since "all swaps are actually flash swaps"
     ///  https://uniswap.org/docs/v2/smart-contract-integration/using-flash-swaps/
     Swap,
+}
+
+impl CallClassification {
+    /// Whether this is still not classified
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, CallClassification::Unknown)
+    }
 }
 
 impl Default for CallClassification {
@@ -170,6 +179,8 @@ impl FromStr for CallClassification {
             "transfer" => Ok(CallClassification::Transfer),
             "liquidation" => Ok(CallClassification::Liquidation),
             "addliquidity" => Ok(CallClassification::AddLiquidity),
+            "borrow" => Ok(CallClassification::Borrow),
+            "repay" => Ok(CallClassification::Repay),
             "swap" => Ok(CallClassification::Swap),
             s => Err(format!("`{}` is not a valid action type", s)),
         }
@@ -295,7 +306,7 @@ impl TryFrom<Log> for EventLog {
     // tries to convert a `ethers::Log` and fails if it's an anonymous log or not included yet
     fn try_from(value: Log) -> Result<Self, Self::Error> {
         let Log {
-            mut topics,
+            topics,
             data,
             block_number,
             transaction_hash,

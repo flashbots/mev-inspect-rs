@@ -1,19 +1,27 @@
-use crate::model::{CallClassification, InternalCall};
+use ethers::{
+    contract::{abigen, BaseContract, EthLogDecode},
+    types::{Address, U256},
+};
+
+use crate::model::{CallClassification, EventLog, InternalCall};
 use crate::{
     addresses::AAVE_LENDING_POOL,
     types::{actions::Liquidation, Classification, Inspection, Protocol},
     DefiProtocol, Inspector, ProtocolContracts,
 };
-use ethers::{
-    contract::abigen,
-    contract::BaseContract,
-    types::{Address, U256},
-};
 
+// https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol
+
+/// _collateral, reserve, user, _purchaseAmount, _receiveAToken
 type LiquidationCall = (Address, Address, Address, U256, bool);
+/// reserve, amount, _referralCode
+type DepositCall = (Address, U256, u16);
+/// _reserve, amount, onbehalfof
+type RepayCall = (Address, U256, Address);
+/// reserve, amount, interestRateMode, referralcode
+type BorrowCall = (Address, U256, U256, u16);
 
 abigen!(AavePool, "abi/aavepool.json");
-
 #[derive(Clone, Debug)]
 pub struct Aave {
     pub pool: BaseContract,
@@ -40,11 +48,38 @@ impl DefiProtocol for Aave {
         Some(*to == *AAVE_LENDING_POOL)
     }
 
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        AavePoolEvents::decode_log(&log.raw_log).is_ok()
+    }
+
     fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
-        self.pool
+        if self
+            .pool
             .decode::<LiquidationCall, _>("liquidationCall", &call.input)
-            .map(|_| CallClassification::Liquidation)
-            .ok()
+            .is_ok()
+        {
+            Some(CallClassification::Liquidation)
+        } else if self
+            .pool
+            .decode::<DepositCall, _>("deposit", &call.input)
+            .is_ok()
+        {
+            Some(CallClassification::Deposit)
+        } else if self
+            .pool
+            .decode::<RepayCall, _>("repay", &call.input)
+            .is_ok()
+        {
+            Some(CallClassification::Repay)
+        } else if self
+            .pool
+            .decode::<BorrowCall, _>("borrow", &call.input)
+            .is_ok()
+        {
+            Some(CallClassification::Borrow)
+        } else {
+            None
+        }
     }
 }
 
@@ -86,10 +121,11 @@ impl Inspector for Aave {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{
         inspectors::ERC20, reducers::LiquidationReducer, test_helpers::read_trace, Reducer,
     };
+
+    use super::*;
 
     struct MyInspector {
         aave: Aave,

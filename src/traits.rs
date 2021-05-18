@@ -1,5 +1,7 @@
 use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::actions::{AddLiquidity, Deposit, Liquidation, Trade, Transfer, Withdrawal};
+use crate::types::actions::{
+    AddLiquidity, Deposit, Liquidation, SpecificAction, Trade, Transfer, Withdrawal,
+};
 use crate::types::{Inspection, Protocol, TransactionData};
 use ethers::prelude::BaseContract;
 use ethers::types::Address;
@@ -19,6 +21,8 @@ pub trait Inspector: core::fmt::Debug {
 }
 
 /// Trait for a general protocol
+///
+/// TODO use classify(call) to indicate what kind of analytics should be executed on `tx`
 pub trait DefiProtocol {
     /// Returns all the known contracts for the protocol
     fn base_contracts(&self) -> ProtocolContracts;
@@ -31,11 +35,9 @@ pub trait DefiProtocol {
         None
     }
 
-    // fn is_protocol() -> bool;
-
     /// Checks whether this event belongs to the protocol
     fn is_protocol_event(&self, _: &EventLog) -> bool {
-        todo!()
+        false
     }
 
     /// Checks if the internal call's target can be attributed to the protocol and whether the call
@@ -76,6 +78,39 @@ pub trait DefiProtocol {
     fn find_arbitrages(&self, _: &mut TransactionData) {}
 
     fn find_liquidation(&self, _: &mut TransactionData) {}
+
+    fn decode_call_action(
+        &self,
+        call: &InternalCall,
+        events: &[EventLog],
+    ) -> Option<SpecificAction> {
+        // decode based on the calls set classifier
+        // TODO introduce an event struct that can be marked as resolved/unresolved
+        None
+    }
+
+    /// This will attempt to classify the call.
+    ///
+    /// Should return the specific action if it is possible to decode it using the input arguments.
+    fn classify(&self, call: &mut InternalCall) -> Option<SpecificAction> {
+        // TODO if unknown try to detect and decode
+        None
+    }
+
+    /// Classifies an inspection's internal calls
+    fn inspect(&self, tx: &mut TransactionData) {
+        // iterate over all calls that are not processed yet
+        for call in tx.calls_mut() {
+            // if a protocol can not be identified by an address, inspect it regardless
+            if self.is_protocol(&call.to).unwrap_or(true) {
+                if let Some(classification) = self.classify_call(call) {
+                    call.protocol = Some(Self::protocol());
+                    // mark this call
+                    call.classification = classification;
+                }
+            }
+        }
+    }
 }
 
 /// A wrapper for `Protocol`'s contracts with helper functions
