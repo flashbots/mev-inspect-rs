@@ -10,12 +10,13 @@ use crate::{
 };
 use ethers::{
     abi::FunctionExt,
-    contract::{abigen, BaseContract, ContractError},
+    contract::{abigen, BaseContract, ContractError, EthLogDecode},
     providers::Middleware,
     types::{Address, Call, CallType, U256},
 };
 
-use crate::model::{CallClassification, InternalCall};
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::{Action, TransactionData};
 use std::collections::HashMap;
 
 type LiquidateBorrow = (Address, U256, Address);
@@ -59,7 +60,22 @@ impl DefiProtocol for Compound {
         Protocol::Compound
     }
 
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        ComptrollerEvents::decode_log(&log.raw_log).is_ok()
+            || CTokenEvents::decode_log(&log.raw_log).is_ok()
+            || CEtherEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        // TODO decode based on bpool events
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
+        // both emit https://github.com/compound-finance/compound-protocol/blob/master/contracts/CToken.sol#L1017
         self.cether
             .decode::<LiquidateBorrowEth, _>("liquidateBorrow", &call.input)
             .map(|_| CallClassification::Liquidation)
@@ -68,6 +84,7 @@ impl DefiProtocol for Compound {
                     .decode::<LiquidateBorrow, _>("liquidateBorrow", &call.input)
                     .map(|_| CallClassification::Liquidation)
             })
+            .map(|c| (c, None))
             .ok()
     }
 }

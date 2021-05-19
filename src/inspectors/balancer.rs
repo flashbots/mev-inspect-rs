@@ -6,9 +6,11 @@ use crate::{
     DefiProtocol, ProtocolContracts,
 };
 
-use crate::model::{CallClassification, InternalCall};
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::actions::SpecificAction;
+use crate::types::{Action, TransactionData};
 use ethers::{
-    contract::{abigen, BaseContract},
+    contract::{abigen, BaseContract, EthLogDecode},
     types::{Address, U256},
 };
 
@@ -16,7 +18,7 @@ abigen!(BalancerPool, "abi/bpool.json");
 abigen!(BalancerProxy, "abi/bproxy.json");
 
 #[derive(Debug, Clone)]
-/// An inspector for Uniswap
+/// An inspector for Balancer
 pub struct Balancer {
     bpool: BaseContract,
     bproxy: BaseContract,
@@ -48,14 +50,27 @@ impl DefiProtocol for Balancer {
         Some(*to == *BALANCER_PROXY)
     }
 
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        BalancerPoolEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        // TODO decode based on bpool events
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
+        // https://github.com/balancer-labs/balancer-core/blob/master/contracts/BPool.sol#L28
         self.bpool
             .decode::<Swap, _>("swapExactAmountIn", &call.input)
             .or_else(|_| {
                 self.bpool
                     .decode::<Swap, _>("swapExactAmountOut", &call.input)
             })
-            .map(|_| CallClassification::Swap)
+            .map(|_| (CallClassification::Swap, None))
             .ok()
     }
 }

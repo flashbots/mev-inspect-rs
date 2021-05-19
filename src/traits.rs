@@ -1,8 +1,6 @@
 use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::actions::{
-    AddLiquidity, Deposit, Liquidation, SpecificAction, Trade, Transfer, Withdrawal,
-};
-use crate::types::{Inspection, Protocol, TransactionData};
+use crate::types::actions::SpecificAction;
+use crate::types::{Action, Inspection, Protocol, TransactionData};
 use ethers::prelude::BaseContract;
 use ethers::types::Address;
 use std::borrow::Cow;
@@ -40,76 +38,59 @@ pub trait DefiProtocol {
         false
     }
 
-    /// Checks if the internal call's target can be attributed to the protocol and whether the call
-    /// can be classified.
-    ///
-    /// This only intends to classify the call as stand alone and without taking any context into
-    /// account.
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification>;
-
-    /// How decode an input function blob
-    fn decode_add_liquidity(&self, _: &InternalCall) -> Option<AddLiquidity> {
-        None
-    }
-
-    fn decode_liquidation(&self, _: &InternalCall) -> Option<Liquidation> {
-        None
-    }
-
-    fn decode_transfer(&self, _: &InternalCall) -> Option<Transfer> {
-        None
-    }
-
-    fn decode_deposit(&self, _: &InternalCall) -> Option<Deposit> {
-        None
-    }
-
-    fn decode_withdrawal(&self, _: &InternalCall) -> Option<Withdrawal> {
-        None
-    }
-
-    /// TODO this should &InternalCall (first swap) and [InternalCall] or iter to find the reverse
-    fn decode_swap(&self, _: &[InternalCall]) -> Option<Trade> {
-        None
-    }
-
-    fn find_trades(&self, _: &mut TransactionData) {}
-
-    fn find_arbitrages(&self, _: &mut TransactionData) {}
-
-    fn find_liquidation(&self, _: &mut TransactionData) {}
-
-    fn decode_call_action(
-        &self,
-        call: &InternalCall,
-        events: &[EventLog],
-    ) -> Option<SpecificAction> {
+    /// Decode the specific action the given call represents
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
         // decode based on the calls set classifier
         // TODO introduce an event struct that can be marked as resolved/unresolved
+        // if returns some --> mark as
         None
     }
 
     /// This will attempt to classify the call.
     ///
-    /// Should return the specific action if it is possible to decode it using the input arguments.
-    fn classify(&self, call: &mut InternalCall) -> Option<SpecificAction> {
-        // TODO if unknown try to detect and decode
+    /// Should return the classification of the call and the action if it is
+    /// possible to decode it using only the call's input arguments.
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
         None
     }
 
-    /// Classifies an inspection's internal calls
+    /// Inspects the transaction and classifies all internal calls
+    ///
+    /// This will first `classify` each call, if no action was derived from the standalone call,
+    /// the action will be tried to be decoded with `decode_call_action`
     fn inspect(&self, tx: &mut TransactionData) {
         // iterate over all calls that are not processed yet
+        let mut actions = Vec::new();
+        let mut decode_again = Vec::new();
         for call in tx.calls_mut() {
             // if a protocol can not be identified by an address, inspect it regardless
             if self.is_protocol(&call.to).unwrap_or(true) {
-                if let Some(classification) = self.classify_call(call) {
+                if let Some((classification, action)) = self.classify(call) {
                     call.protocol = Some(Self::protocol());
                     // mark this call
                     call.classification = classification;
+
+                    if let Some(action) = action {
+                        actions.push(Action::new(action, call.trace_address.clone()));
+                    } else {
+                        decode_again.push(call.trace_address.clone());
+                    }
                 }
             }
         }
+
+        for call in decode_again {
+            if let Some(call) = tx.get_call(&call) {
+                if let Some(action) = self.decode_call_action(call, tx) {
+                    actions.push(action);
+                }
+            }
+        }
+
+        tx.extend_actions(actions.into_iter());
     }
 }
 

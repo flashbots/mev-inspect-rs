@@ -1,5 +1,6 @@
 use crate::addresses::WETH;
-use crate::model::{CallClassification, InternalCall};
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::actions::SpecificAction;
 use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, PROTOCOLS},
     inspectors::find_matching,
@@ -11,8 +12,7 @@ use crate::{
     DefiProtocol, ProtocolContracts,
 };
 use ethers::{
-    contract::decode_function_data,
-    contract::{abigen, BaseContract},
+    contract::{abigen, decode_function_data, BaseContract, EthLogDecode},
     types::{Address, Bytes, Call as TraceCall, CallType, U256},
 };
 
@@ -63,54 +63,52 @@ impl DefiProtocol for Uniswap {
     }
 
     fn protocol() -> Protocol {
-        Protocol::Uniswap
+        Protocol::UniswapV2
     }
 
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
-        if self
-            .router
-            .decode::<AddLiquidity, _>("addLiquidity", &call.input)
-            .is_ok()
-            || self
-                .router
-                .decode::<AddLiquidityEth, _>("addLiquidityETH", &call.input)
-                .is_ok()
-        {
-            Some(CallClassification::AddLiquidity)
-        } else if self.is_swap_call(call) {
-            Some(CallClassification::Swap)
-        } else if self
-            .router
-            .decode::<RemoveLiquidity, _>("removeLiquidity", &call.input)
-            .is_ok()
-            || self
-                .router
-                .decode::<RemoveLiquidityEth, _>("removeLiquidityETH", &call.input)
-                .is_ok()
-        {
-            Some(CallClassification::Liquidation)
-        } else {
-            None
-        }
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        UniPairEvents::decode_log(&log.raw_log).is_ok()
     }
 
-    fn decode_add_liquidity(&self, call: &InternalCall) -> Option<AddLiquidityAct> {
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
         if let Ok((token0, token1, amount0, amount1, _, _, _, _)) = self
             .router
             .decode::<AddLiquidity, _>("addLiquidity", &call.input)
         {
-            Some(AddLiquidityAct {
-                tokens: vec![token0, token1],
-                amounts: vec![amount0, amount1],
-            })
+            Some((
+                CallClassification::AddLiquidity,
+                Some(SpecificAction::AddLiquidity(AddLiquidityAct {
+                    tokens: vec![token0, token1],
+                    amounts: vec![amount0, amount1],
+                })),
+            ))
         } else if let Ok((token, amount0, _, amount_weth, _, _)) = self
             .router
             .decode::<AddLiquidityEth, _>("addLiquidityETH", &call.input)
         {
-            Some(AddLiquidityAct {
-                tokens: vec![token, WETH.clone()],
-                amounts: vec![amount0, amount_weth],
-            })
+            Some((
+                CallClassification::AddLiquidity,
+                Some(SpecificAction::AddLiquidity(AddLiquidityAct {
+                    tokens: vec![token, WETH.clone()],
+                    amounts: vec![amount0, amount_weth],
+                })),
+            ))
+        } else if self.is_swap_call(call) {
+            Some((CallClassification::Swap, None))
+        } else if let Ok((_token_a, _token_b, _liquidity, _amount_amin, _amount_bmin, _to, _)) =
+            self.router
+                .decode::<RemoveLiquidity, _>("removeLiquidity", &call.input)
+        {
+            // TODO how to handle liquidations, using the corresponding pair's transfer events?
+            Some((CallClassification::Liquidation, None))
+        } else if let Ok((_token_a, _liquidity, _amount_token_min, _amount_ethmin, _to, _)) = self
+            .router
+            .decode::<RemoveLiquidityEth, _>("removeLiquidityETH", &call.input)
+        {
+            Some((CallClassification::Liquidation, None))
         } else {
             None
         }
@@ -362,7 +360,7 @@ pub mod tests {
             assert_eq!(inspection.unknown().len(), 7);
             assert_eq!(
                 inspection.protocols,
-                crate::set![Protocol::Sushiswap, Protocol::Uniswap]
+                crate::set![Protocol::Sushiswap, Protocol::UniswapV2]
             );
         }
 
@@ -418,8 +416,8 @@ pub mod tests {
     // Traces which either reverted or returned early on purpose, after checking
     // for an arb opportunity and seeing that it won't work.
     fn checked() {
-        let both = crate::set![Protocol::Uniswap, Protocol::Sushiswap];
-        let uni = crate::set![Protocol::Uniswap];
+        let both = crate::set![Protocol::UniswapV2, Protocol::Sushiswap];
+        let uni = crate::set![Protocol::UniswapV2];
         for (trace, protocols) in &[
             (
                 "0x2f85ce5bb5f7833e052897fa4a070615a4e21a247e1ccc2347a3882f0e73943d",
@@ -428,7 +426,7 @@ pub mod tests {
             (
                 // sakeswap is uniswappy
                 "0xd9df5ae2e9e18099913559f71473866758df3fd25919be605c71c300e64165fd",
-                &crate::set![Protocol::Uniswappy, Protocol::Uniswap],
+                &crate::set![Protocol::Uniswappy, Protocol::UniswapV2],
             ),
             (
                 "0xfd24e512dc90bd1ca8a4f7987be6122c1fa3221b261e8728212f2f4d980ee4cd",

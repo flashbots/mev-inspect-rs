@@ -6,11 +6,13 @@ use crate::{
     DefiProtocol, ProtocolContracts,
 };
 
-use crate::model::{CallClassification, InternalCall};
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::actions::SpecificAction;
+use crate::types::{Action, TransactionData};
 use ethers::{
     abi::parse_abi,
     contract::{abigen, ContractError},
-    contract::{decode_function_data, BaseContract},
+    contract::{decode_function_data, BaseContract, EthLogDecode},
     providers::Middleware,
     types::{Address, Call as TraceCall, U256},
 };
@@ -45,9 +47,23 @@ impl DefiProtocol for Curve {
         Protocol::Curve
     }
 
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        CurvePoolEvents::decode_log(&log.raw_log).is_ok()
+            || CurveRegistryEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        // TODO decode based on events
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
+        // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L27
         self.as_add_liquidity(&call.to, &call.input)
-            .map(|_| CallClassification::Liquidation)
+            .map(|_| (CallClassification::Liquidation, None))
     }
 }
 

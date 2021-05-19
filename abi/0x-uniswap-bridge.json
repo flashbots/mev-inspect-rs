@@ -1,8 +1,46 @@
 [
   {
-    "payable": true,
-    "stateMutability": "payable",
-    "type": "fallback"
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "inputToken",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "outputToken",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "inputTokenAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "outputTokenAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "ERC20BridgeTransfer",
+    "type": "event"
   },
   {
     "constant": false,
@@ -14,7 +52,7 @@
       },
       {
         "internalType": "address",
-        "name": "",
+        "name": "from",
         "type": "address"
       },
       {
@@ -43,36 +81,6 @@
     ],
     "payable": false,
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "constant": true,
-    "inputs": [],
-    "name": "getUniswapExchangeFactoryContract",
-    "outputs": [
-      {
-        "internalType": "contract IUniswapExchangeFactory",
-        "name": "factory",
-        "type": "address"
-      }
-    ],
-    "payable": false,
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "constant": true,
-    "inputs": [],
-    "name": "getWethContract",
-    "outputs": [
-      {
-        "internalType": "contract IEtherToken",
-        "name": "token",
-        "type": "address"
-      }
-    ],
-    "payable": false,
-    "stateMutability": "view",
     "type": "function"
   },
   {

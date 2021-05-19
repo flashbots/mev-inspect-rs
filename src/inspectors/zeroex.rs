@@ -5,10 +5,11 @@ use crate::{
     DefiProtocol, ProtocolContracts,
 };
 
-use crate::model::{CallClassification, InternalCall};
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::actions::SpecificAction;
+use crate::types::{Action, TransactionData};
 use ethers::{
-    contract::abigen,
-    contract::BaseContract,
+    contract::{abigen, BaseContract, EthLogDecode},
     types::{Address, Bytes, U256},
 };
 
@@ -41,11 +42,25 @@ impl DefiProtocol for ZeroEx {
         Protocol::ZeroEx
     }
 
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        Erc20BridgeTransferFilter::decode_log(&log.raw_log).is_ok()
+            || ZeroXExchangeEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        // TODO decode based on bpool events
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
+        // https://github.com/0xProject/0x-monorepo/blob/development/contracts/asset-proxy/contracts/src/bridges/UniswapBridge.sol#L150
         self.bridge
             .decode::<BridgeTransfer, _>("bridgeTransferFrom", &call.input)
             .ok()
-            .map(|_| CallClassification::Transfer)
+            .map(|_| (CallClassification::Transfer, None))
     }
 }
 
@@ -140,7 +155,7 @@ mod tests {
         zeroex.inspect(&mut inspection);
         assert_eq!(
             inspection.protocols,
-            crate::set![Protocol::ZeroEx, Protocol::Balancer, Protocol::Uniswap]
+            crate::set![Protocol::ZeroEx, Protocol::Balancer, Protocol::UniswapV2]
         );
         assert_eq!(inspection.status, Status::Reverted);
         let known = inspection.known();

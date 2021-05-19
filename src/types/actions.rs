@@ -8,6 +8,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 /// The types of actions
 pub enum SpecificAction {
+    Deposit(Deposit),
     WethDeposit(Deposit),
     WethWithdrawal(Withdrawal),
 

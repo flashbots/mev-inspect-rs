@@ -4,6 +4,8 @@ use ethers::{
 };
 
 use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::actions::SpecificAction;
+use crate::types::{Action, TransactionData};
 use crate::{
     addresses::AAVE_LENDING_POOL,
     types::{actions::Liquidation, Classification, Inspection, Protocol},
@@ -52,31 +54,46 @@ impl DefiProtocol for Aave {
         AavePoolEvents::decode_log(&log.raw_log).is_ok()
     }
 
-    fn classify_call(&self, call: &InternalCall) -> Option<CallClassification> {
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        // Set liquidation amount to 0. We'll set it at the reducer
+
+        // TODO decode based on the call's events
+
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
         if self
             .pool
             .decode::<LiquidationCall, _>("liquidationCall", &call.input)
             .is_ok()
         {
-            Some(CallClassification::Liquidation)
+            // https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol#L215
+            Some((CallClassification::Liquidation, None))
         } else if self
             .pool
             .decode::<DepositCall, _>("deposit", &call.input)
             .is_ok()
         {
-            Some(CallClassification::Deposit)
+            // will fire an event https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol#L46
+            Some((CallClassification::Deposit, None))
         } else if self
             .pool
             .decode::<RepayCall, _>("repay", &call.input)
             .is_ok()
         {
-            Some(CallClassification::Repay)
+            // https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol#L102
+            Some((CallClassification::Repay, None))
         } else if self
             .pool
             .decode::<BorrowCall, _>("borrow", &call.input)
             .is_ok()
         {
-            Some(CallClassification::Borrow)
+            // https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPool.sol#L80
+            Some((CallClassification::Borrow, None))
         } else {
             None
         }

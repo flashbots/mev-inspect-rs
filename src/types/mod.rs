@@ -11,6 +11,7 @@ pub use inspection::Inspection;
 
 use crate::is_subtrace;
 use crate::model::{EventLog, InternalCall};
+use crate::types::actions::SpecificAction;
 use std::collections::BTreeMap;
 
 pub mod actions;
@@ -53,7 +54,8 @@ impl FromStr for Status {
 pub enum Protocol {
     // Uniswap & Forks
     UniswapV1,
-    Uniswap,
+    UniswapV2,
+    UniswapV3,
     Uniswappy,
     Sushiswap,
     SakeSwap,
@@ -77,7 +79,10 @@ pub enum Protocol {
 impl Protocol {
     pub fn is_uniswap(&self) -> bool {
         match self {
-            Protocol::UniswapV1 | Protocol::Uniswap | Protocol::Uniswappy => true,
+            Protocol::UniswapV1
+            | Protocol::UniswapV2
+            | Protocol::UniswapV3
+            | Protocol::Uniswappy => true,
             _ => false,
         }
     }
@@ -123,7 +128,8 @@ impl FromStr for Protocol {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "uniswapv1" => Ok(Protocol::UniswapV1),
-            "uniswap" => Ok(Protocol::Uniswap),
+            "uniswapv2" => Ok(Protocol::UniswapV2),
+            "uniswapv3" => Ok(Protocol::UniswapV3),
             "uniswappy" => Ok(Protocol::Uniswappy),
             "sushiswap" => Ok(Protocol::Sushiswap),
             "sakeswap" => Ok(Protocol::SakeSwap),
@@ -139,22 +145,25 @@ impl FromStr for Protocol {
     }
 }
 
+/// Type alias for trace address of an internal
+pub type CallTraceAddress = Vec<usize>;
+
 /// An `EventLog` that can be assigned to a call
 #[derive(Debug, Clone)]
 pub struct TransactionLog {
     pub inner: EventLog,
     /// The trace of the call this event is assigned to
-    assigned_to_call: Option<Vec<usize>>,
+    assigned_to_call: Option<CallTraceAddress>,
 }
 
 impl TransactionLog {
     /// Assign this log to the call identified by the given trace address
-    pub fn assign_to(&mut self, trace_address: Vec<usize>) -> Option<Vec<usize>> {
+    pub fn assign_to(&mut self, trace_address: CallTraceAddress) -> Option<CallTraceAddress> {
         self.assigned_to_call.replace(trace_address)
     }
 
     /// Remove the trace address of the assigned call, if there is one
-    pub fn un_assign(&mut self) -> Option<Vec<usize>> {
+    pub fn un_assign(&mut self) -> Option<CallTraceAddress> {
         self.assigned_to_call.take()
     }
 
@@ -164,7 +173,7 @@ impl TransactionLog {
     }
 
     /// Returns the trace address of the call this event is assigned to
-    pub fn assigned_call(&self) -> Option<&Vec<usize>> {
+    pub fn assigned_call(&self) -> Option<&CallTraceAddress> {
         self.assigned_to_call.as_ref()
     }
 }
@@ -186,6 +195,26 @@ impl Deref for TransactionLog {
 impl DerefMut for TransactionLog {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
+    }
+}
+/// Represents an identified action, initiated by the `call` and the `logs` involved
+#[derive(Debug, Clone)]
+pub struct Action {
+    /// The actual action
+    pub inner: SpecificAction,
+    /// The call responsible for this action
+    pub call: CallTraceAddress,
+    /// The log indices of the logs used
+    pub logs: Vec<U256>,
+}
+
+impl Action {
+    pub fn new(inner: SpecificAction, call: CallTraceAddress) -> Self {
+        Self::with_logs(inner, call, Vec::new())
+    }
+
+    pub fn with_logs(inner: SpecificAction, call: CallTraceAddress, logs: Vec<U256>) -> Self {
+        Self { inner, call, logs }
     }
 }
 
@@ -224,14 +253,18 @@ pub struct TransactionData {
     /// log_index  -> Log
     logs: BTreeMap<U256, TransactionLog>,
     /// All internal calls sorted by trace
-    calls: BTreeMap<Vec<usize>, InternalCall>,
-    /// classifications of this transactions
-    classifications: Vec<Classification>,
+    calls: BTreeMap<CallTraceAddress, InternalCall>,
+    /// actions identified in this transaction
+    actions: Vec<Action>,
 }
 
 impl TransactionData {
     pub fn new(inspection: &Inspection) -> Self {
         todo!()
+    }
+
+    pub fn get_call(&self, trace_address: &CallTraceAddress) -> Option<&InternalCall> {
+        self.calls.get(trace_address)
     }
 
     /// All the logs that are not assigned to a call yet
@@ -240,7 +273,7 @@ impl TransactionData {
     }
 
     /// All the logs that are assigned to a call
-    pub fn assigned_logs(&self) -> impl Iterator<Item = (&Vec<usize>, &EventLog)> {
+    pub fn assigned_logs(&self) -> impl Iterator<Item = (&CallTraceAddress, &EventLog)> {
         self.logs
             .values()
             .filter_map(|log| log.assigned_call().map(|trace| (trace, &log.inner)))
@@ -286,7 +319,7 @@ impl TransactionData {
     pub fn sub_logs(
         &self,
         log_index: impl AsRef<U256>,
-    ) -> impl Iterator<Item = (&Vec<usize>, &EventLog)> {
+    ) -> impl Iterator<Item = (&CallTraceAddress, &EventLog)> {
         let index = *log_index.as_ref();
         let mut trace = None;
         self.assigned_logs()
@@ -315,7 +348,28 @@ impl TransactionData {
         })
     }
 
-    pub fn push_classification(&mut self, c: Classification) {
-        self.classifications.push(c)
+    /// Add a new action to the action set
+    ///
+    /// The action's call will be assigned to logs included in this action
+    pub fn push_action(&mut self, action: Action) {
+        for log in &action.logs {
+            // assign the action's call
+            self.logs
+                .get_mut(log)
+                .and_then(|l| l.assign_to(action.call.clone()));
+        }
+        self.actions.push(action)
+    }
+
+    /// Add a series of actions
+    pub fn extend_actions(&mut self, actions: impl Iterator<Item = Action>) {
+        for action in actions {
+            self.push_action(action);
+        }
+    }
+
+    /// Iterator over all the actions identified for this tx
+    pub fn actions(&self) -> impl Iterator<Item = &Action> {
+        self.actions.iter()
     }
 }

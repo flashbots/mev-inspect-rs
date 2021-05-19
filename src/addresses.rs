@@ -49,7 +49,7 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
             "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc",
             "0xDcD6011f4C6B80e470D9487f5871a0Cba7C93f48", // 0x: UniswapV2Bridge
         ],
-        Protocol::Uniswap,
+        Protocol::UniswapV2,
     );
 
     let mut map = insert_many(
@@ -70,7 +70,7 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     }
 
     for addr in read_addrs("./res/v2pairs.csv") {
-        map.insert(addr, Protocol::Uniswap);
+        map.insert(addr, Protocol::UniswapV2);
     }
 
     for addr in read_addrs("./res/sushipairs.csv") {
@@ -80,13 +80,13 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     // uni router 02
     map.insert(
         parse_address("7a250d5630B4cF539739dF2C5dAcb4c659F2488D"),
-        Protocol::Uniswap,
+        Protocol::UniswapV2,
     );
 
     // uni router 01
     map.insert(
         parse_address("f164fC0Ec4E93095b804a4795bBe1e041497b92a"),
-        Protocol::Uniswap,
+        Protocol::UniswapV2,
     );
 
     // sushi router

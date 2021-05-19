@@ -436,7 +436,7 @@ mod tests {
             // SushiSwap is touched in a static call. The bot probably
             // checked whether it was more profitable to trade the
             // ETH for YFI on Sushi or Uni
-            set![Protocol::Uniswap, Protocol::Sushiswap, Protocol::Aave]
+            set![Protocol::UniswapV2, Protocol::Sushiswap, Protocol::Aave]
         );
 
         assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "WETH");
@@ -477,7 +477,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            set![Protocol::Uniswap, Protocol::Balancer]
+            set![Protocol::UniswapV2, Protocol::Balancer]
         );
     }
 
@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
-            set![Protocol::Uniswap, Protocol::Balancer]
+            set![Protocol::UniswapV2, Protocol::Balancer]
         );
     }
 
@@ -574,7 +574,7 @@ mod tests {
         inspection.prune();
 
         assert_eq!(inspection.status, Status::Reverted);
-        assert_eq!(inspection.protocols, set![Protocol::Uniswap])
+        assert_eq!(inspection.protocols, set![Protocol::UniswapV2])
     }
 
     #[test]
@@ -605,7 +605,7 @@ mod tests {
         assert_eq!(inspection.status, Status::Success);
         assert_eq!(
             inspection.protocols,
-            set![Protocol::Aave, Protocol::DyDx, Protocol::Uniswap]
+            set![Protocol::Aave, Protocol::DyDx, Protocol::UniswapV2]
         );
         let liquidation = known
             .iter()
@@ -646,7 +646,7 @@ mod tests {
         assert_eq!(inspection.status, Status::Success);
         assert_eq!(
             inspection.protocols,
-            set![Protocol::Uniswap, Protocol::Aave]
+            set![Protocol::UniswapV2, Protocol::Aave]
         );
         let liquidation = known
             .iter()
