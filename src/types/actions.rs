@@ -17,6 +17,7 @@ pub enum SpecificAction {
     Liquidation(Liquidation),
 
     AddLiquidity(AddLiquidity),
+    RemoveLiquidity(RemoveLiquidity),
 
     Arbitrage(Arbitrage),
     ProfitableLiquidation(ProfitableLiquidation),
@@ -28,6 +29,12 @@ pub enum SpecificAction {
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub struct AddLiquidity {
+    pub tokens: Vec<Address>,
+    pub amounts: Vec<U256>,
+}
+
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
+pub struct RemoveLiquidity {
     pub tokens: Vec<Address>,
     pub amounts: Vec<U256>,
 }

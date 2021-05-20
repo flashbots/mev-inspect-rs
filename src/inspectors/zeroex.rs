@@ -6,7 +6,7 @@ use crate::{
 };
 
 use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::actions::SpecificAction;
+use crate::types::actions::{SpecificAction, Trade};
 use crate::types::{Action, TransactionData};
 use ethers::{
     contract::{abigen, BaseContract, EthLogDecode},
@@ -48,7 +48,36 @@ impl DefiProtocol for ZeroEx {
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
-        // TODO decode based on bpool events
+        match call.classification {
+            CallClassification::Transfer => {
+                // https://github.com/0xProject/0x-monorepo/blob/development/contracts/asset-proxy/contracts/src/interfaces/IERC20Bridge.sol#L34
+                if let Some((_, log, swap)) = tx
+                    .call_logs_decoded::<Erc20BridgeTransferFilter>(&call.trace_address)
+                    .next()
+                {
+                    let action = Trade {
+                        t1: Transfer {
+                            from: swap.from,
+                            to: swap.to,
+                            amount: swap.input_token_amount,
+                            token: swap.input_token,
+                        },
+                        t2: Transfer {
+                            from: swap.to,
+                            to: swap.from,
+                            amount: swap.output_token_amount,
+                            token: swap.output_token,
+                        },
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            _ => {}
+        }
         None
     }
 

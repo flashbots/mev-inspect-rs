@@ -1,6 +1,12 @@
-use crate::addresses::WETH;
+use ethers::{
+    contract::{abigen, decode_function_data, BaseContract, EthLogDecode},
+    types::{Address, Bytes, Call as TraceCall, CallType, U256},
+};
+
+use crate::inspectors::erc20::{self, ERC20};
 use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::actions::SpecificAction;
+use crate::types::actions::{SpecificAction, Transfer};
+use crate::types::{Action, TransactionData};
 use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, PROTOCOLS},
     inspectors::find_matching,
@@ -10,10 +16,6 @@ use crate::{
         Classification, Inspection, Protocol, Status,
     },
     DefiProtocol, ProtocolContracts,
-};
-use ethers::{
-    contract::{abigen, decode_function_data, BaseContract, EthLogDecode},
-    types::{Address, Bytes, Call as TraceCall, CallType, U256},
 };
 
 // Type aliases for Uniswap's `swap` return types
@@ -46,6 +48,7 @@ abigen!(UniPoolV3, "abi/unipoolv3.json");
 pub struct Uniswap {
     router: BaseContract,
     pair: BaseContract,
+    erc20: ERC20,
 }
 
 impl Default for Uniswap {
@@ -53,6 +56,7 @@ impl Default for Uniswap {
         Self {
             router: BaseContract::from(UNIROUTERV2_ABI.clone()),
             pair: BaseContract::from(UNIPAIR_ABI.clone()),
+            erc20: ERC20::new(),
         }
     }
 }
@@ -70,45 +74,135 @@ impl DefiProtocol for Uniswap {
         UniPairEvents::decode_log(&log.raw_log).is_ok()
     }
 
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        match call.classification {
+            CallClassification::AddLiquidity => {
+                // `addLiquidity` calls `transferFrom` twice resulting in two `Transfer` events (tokenA, tokenB)
+                // https://github.com/Uniswap/uniswap-v2-periphery/blob/master/contracts/UniswapV2Router02.sol#L73-L74
+                // for addLiquidityEth its (token, WETH)
+                if let Some((a, b)) = self.decode_token_transfers(call, tx) {
+                    let action = AddLiquidityAct {
+                        tokens: vec![a.token, b.token],
+                        amounts: vec![a.value, b.value],
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![a.log_index, b.log_index],
+                    ));
+                }
+            }
+            CallClassification::Liquidation => {
+                // get the burn event from the pair
+                // burn https://github.com/Uniswap/uniswap-v2-core/blob/master/contracts/UniswapV2Pair.sol#L148-L149
+                if let Some((a, b)) = self.decode_token_transfers(call, tx) {
+                    let action = AddLiquidityAct {
+                        tokens: vec![a.token, b.token],
+                        amounts: vec![a.value, b.value],
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![a.log_index, b.log_index],
+                    ));
+                }
+            }
+            CallClassification::Swap => {
+                if let Some((a, b)) = self.decode_token_transfers(call, tx) {
+                    if let Some((_, pair_log, swap)) = tx
+                        .call_logs_decoded::<unipair_mod::SwapFilter>(&call.trace_address)
+                        .next()
+                    {
+                        let action = Trade {
+                            t1: Transfer {
+                                from: swap.sender,
+                                to: pair_log.address,
+                                amount: a.value,
+                                token: a.token,
+                            },
+                            t2: Transfer {
+                                from: pair_log.address,
+                                to: swap.sender,
+                                amount: b.value,
+                                token: b.token,
+                            },
+                        };
+                        return Some(Action::with_logs(
+                            action.into(),
+                            call.trace_address.clone(),
+                            vec![a.log_index, b.log_index],
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
     fn classify(
         &self,
         call: &InternalCall,
     ) -> Option<(CallClassification, Option<SpecificAction>)> {
-        if let Ok((token0, token1, amount0, amount1, _, _, _, _)) = self
+        if self
             .router
             .decode::<AddLiquidity, _>("addLiquidity", &call.input)
+            .is_ok()
         {
-            Some((
-                CallClassification::AddLiquidity,
-                Some(SpecificAction::AddLiquidity(AddLiquidityAct {
-                    tokens: vec![token0, token1],
-                    amounts: vec![amount0, amount1],
-                })),
-            ))
-        } else if let Ok((token, amount0, _, amount_weth, _, _)) = self
+            Some((CallClassification::AddLiquidity, None))
+        } else if self
             .router
             .decode::<AddLiquidityEth, _>("addLiquidityETH", &call.input)
+            .is_ok()
         {
-            Some((
-                CallClassification::AddLiquidity,
-                Some(SpecificAction::AddLiquidity(AddLiquidityAct {
-                    tokens: vec![token, WETH.clone()],
-                    amounts: vec![amount0, amount_weth],
-                })),
-            ))
+            Some((CallClassification::AddLiquidity, None))
         } else if self.is_swap_call(call) {
             Some((CallClassification::Swap, None))
         } else if let Ok((_token_a, _token_b, _liquidity, _amount_amin, _amount_bmin, _to, _)) =
             self.router
                 .decode::<RemoveLiquidity, _>("removeLiquidity", &call.input)
         {
-            // TODO how to handle liquidations, using the corresponding pair's transfer events?
-            Some((CallClassification::Liquidation, None))
+            Some((CallClassification::RemoveLiquidity, None))
         } else if let Ok((_token_a, _liquidity, _amount_token_min, _amount_ethmin, _to, _)) = self
             .router
             .decode::<RemoveLiquidityEth, _>("removeLiquidityETH", &call.input)
         {
-            Some((CallClassification::Liquidation, None))
+            Some((CallClassification::RemoveLiquidity, None))
+        } else {
+            None
+        }
+    }
+}
+
+struct TokenTransfer {
+    token: Address,
+    value: U256,
+    log_index: U256,
+}
+
+impl Uniswap {
+    fn decode_token_transfers(
+        &self,
+        call: &InternalCall,
+        tx: &TransactionData,
+    ) -> Option<(TokenTransfer, TokenTransfer)> {
+        let mut transfers = tx.call_logs_decoded::<erc20::TransferFilter>(&call.trace_address);
+
+        if let (Some((_, log_a, transfer_a)), Some((_, log_b, transfer_b))) =
+            (transfers.next(), transfers.next())
+        {
+            let a = TokenTransfer {
+                token: log_a.address,
+                value: transfer_a.value,
+                log_index: log_a.log_index,
+            };
+
+            let b = TokenTransfer {
+                token: log_b.address,
+                value: transfer_b.value,
+                log_index: log_b.log_index,
+            };
+            Some((a, b))
         } else {
             None
         }
@@ -298,7 +392,8 @@ impl Uniswap {
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
+    use ethers::types::U256;
+
     use crate::test_helpers::*;
     use crate::{
         addresses::ADDRESSBOOK,
@@ -307,7 +402,8 @@ pub mod tests {
         Reducer,
     };
     use crate::{inspectors::ERC20, types::Inspection, Inspector};
-    use ethers::types::U256;
+
+    use super::*;
 
     // inspector that does all 3 transfer/trade/arb combos
     struct MyInspector {

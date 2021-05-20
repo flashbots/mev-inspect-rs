@@ -53,7 +53,28 @@ impl DefiProtocol for Curve {
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
-        // TODO decode based on events
+        match call.classification {
+            CallClassification::AddLiquidity => {
+                // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L27
+                if let Some((_, log, add_liquidity)) = tx
+                    .call_logs_decoded::<AddLiquidityFilter>(&call.trace_address)
+                    .next()
+                {
+                    let tokens = self.pools.get(&call.to).cloned().unwrap_or_default();
+                    let action = AddLiquidity {
+                        tokens,
+                        amounts: add_liquidity.token_amounts.to_vec(),
+                    };
+
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            _ => {}
+        }
         None
     }
 
@@ -61,9 +82,9 @@ impl DefiProtocol for Curve {
         &self,
         call: &InternalCall,
     ) -> Option<(CallClassification, Option<SpecificAction>)> {
-        // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L27
+        // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L372
         self.as_add_liquidity(&call.to, &call.input)
-            .map(|_| (CallClassification::Liquidation, None))
+            .map(|_| (CallClassification::AddLiquidity, None))
     }
 }
 

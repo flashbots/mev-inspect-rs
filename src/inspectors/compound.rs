@@ -1,3 +1,14 @@
+use std::collections::HashMap;
+
+use ethers::{
+    abi::FunctionExt,
+    contract::{abigen, BaseContract, ContractError, EthLogDecode},
+    providers::Middleware,
+    types::{Address, Call, CallType, U256},
+};
+
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::{Action, TransactionData};
 use crate::{
     actions_after,
     addresses::{CETH, COMPTROLLER, COMP_ORACLE, WETH},
@@ -8,16 +19,6 @@ use crate::{
     },
     DefiProtocol, ProtocolContracts,
 };
-use ethers::{
-    abi::FunctionExt,
-    contract::{abigen, BaseContract, ContractError, EthLogDecode},
-    providers::Middleware,
-    types::{Address, Call, CallType, U256},
-};
-
-use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::{Action, TransactionData};
-use std::collections::HashMap;
 
 type LiquidateBorrow = (Address, U256, Address);
 type LiquidateBorrowEth = (Address, Address);
@@ -67,7 +68,32 @@ impl DefiProtocol for Compound {
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
-        // TODO decode based on bpool events
+        match call.classification {
+            CallClassification::Liquidation => {
+                // https://github.com/compound-finance/compound-protocol/blob/master/contracts/CTokenInterfaces.sol#L157
+                if let Some((_, log, liquidation)) = tx
+                    .call_logs_decoded::<ctoken_mod::LiquidateBorrowFilter>(&call.trace_address)
+                    .next()
+                {
+                    let action = Liquidation {
+                        sent_token: *self.underlying(&call.to),
+                        sent_amount: liquidation.repay_amount,
+
+                        received_token: liquidation.c_token_collateral,
+                        received_amount: 0.into(),
+
+                        from: call.from,
+                        liquidated_user: liquidation.borrower,
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            _ => {}
+        }
         None
     }
 
@@ -266,15 +292,18 @@ impl Compound {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::convert::TryFrom;
+
+    use ethers::providers::Provider;
+
     use crate::{
         addresses::{parse_address, ADDRESSBOOK},
         test_helpers::*,
         types::Status,
         Inspector,
     };
-    use ethers::providers::Provider;
-    use std::convert::TryFrom;
+
+    use super::*;
 
     #[test]
     // https://etherscan.io/tx/0xb7ba825294f757f8b8b6303b2aef542bcaebc9cc0217ddfaf822200a00594ed9

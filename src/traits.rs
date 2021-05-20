@@ -39,23 +39,14 @@ pub trait DefiProtocol {
     }
 
     /// Decode the specific action the given call represents
-    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
-        // decode based on the calls set classifier
-        // TODO introduce an event struct that can be marked as resolved/unresolved
-        // if returns some --> mark as
-        None
-    }
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action>;
 
     /// This will attempt to classify the call.
     ///
     /// Should return the classification of the call and the action if it is
     /// possible to decode it using only the call's input arguments.
-    fn classify(
-        &self,
-        call: &InternalCall,
-    ) -> Option<(CallClassification, Option<SpecificAction>)> {
-        None
-    }
+    fn classify(&self, call: &InternalCall)
+        -> Option<(CallClassification, Option<SpecificAction>)>;
 
     /// Inspects the transaction and classifies all internal calls
     ///

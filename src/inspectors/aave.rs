@@ -55,7 +55,6 @@ impl DefiProtocol for Aave {
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
-        // Set liquidation amount to 0. We'll set it at the reducer
         match call.classification {
             CallClassification::Liquidation => {
                 // eventually emitted by the liquidation manager
@@ -68,6 +67,7 @@ impl DefiProtocol for Aave {
                         sent_token: liquidation.reserve,
                         sent_amount: liquidation.purchase_amount,
                         received_token: liquidation.collateral,
+                        // Set liquidation amount to 0. We'll set it at the reducer
                         received_amount: U256::zero(),
                         from: call.from,
                         liquidated_user: liquidation.user,

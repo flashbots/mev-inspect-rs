@@ -7,7 +7,7 @@ use crate::{
 };
 
 use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::actions::SpecificAction;
+use crate::types::actions::{SpecificAction, Transfer};
 use crate::types::{Action, TransactionData};
 use ethers::{
     contract::{abigen, BaseContract, EthLogDecode},
@@ -36,6 +36,20 @@ impl Default for Balancer {
 
 type Swap = (Address, U256, Address, U256, U256);
 
+impl Balancer {
+    pub fn is_swap_out(&self, call: &InternalCall) -> bool {
+        self.bpool
+            .decode::<Swap, _>("swapExactAmountOut", &call.input)
+            .is_ok()
+    }
+
+    pub fn is_swap_in(&self, call: &InternalCall) -> bool {
+        self.bpool
+            .decode::<Swap, _>("swapExactAmountIn", &call.input)
+            .is_ok()
+    }
+}
+
 impl DefiProtocol for Balancer {
     fn base_contracts(&self) -> ProtocolContracts {
         ProtocolContracts::Dual(&self.bpool, &self.bproxy)
@@ -55,7 +69,39 @@ impl DefiProtocol for Balancer {
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
-        // TODO decode based on bpool events
+        match call.classification {
+            CallClassification::Swap => {
+                // `LOG_SWAP` events are directly emitted by the callee:
+                // https://github.com/balancer-labs/balancer-core/blob/master/contracts/BPool.sol#L478
+                if let Some((c, log, swap)) = tx
+                    .call_logs_decoded::<LogSwapFilter>(&call.trace_address)
+                    .next()
+                {
+                    // swap token_in from caller to the calle for
+                    //      token_out from the callee to the caller
+                    let action = Trade {
+                        t1: Transfer {
+                            from: swap.caller,
+                            to: c.to,
+                            amount: swap.token_amount_in,
+                            token: swap.token_in,
+                        },
+                        t2: Transfer {
+                            from: call.to,
+                            to: swap.caller,
+                            amount: swap.token_amount_out,
+                            token: swap.token_out,
+                        },
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            _ => {}
+        }
         None
     }
 
@@ -64,14 +110,11 @@ impl DefiProtocol for Balancer {
         call: &InternalCall,
     ) -> Option<(CallClassification, Option<SpecificAction>)> {
         // https://github.com/balancer-labs/balancer-core/blob/master/contracts/BPool.sol#L28
-        self.bpool
-            .decode::<Swap, _>("swapExactAmountIn", &call.input)
-            .or_else(|_| {
-                self.bpool
-                    .decode::<Swap, _>("swapExactAmountOut", &call.input)
-            })
-            .map(|_| (CallClassification::Swap, None))
-            .ok()
+        if self.is_swap_in(call) || self.is_swap_out(&call) {
+            Some((CallClassification::Swap, None))
+        } else {
+            None
+        }
     }
 }
 

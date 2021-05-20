@@ -7,10 +7,24 @@ use crate::{
     Inspector,
 };
 use ethers::{
-    abi::parse_abi,
-    contract::BaseContract,
+    contract::{abigen, BaseContract},
     types::{Address, Call as TraceCall, CallType, U256},
 };
+
+abigen!(
+    Erc20Contract,
+    r#"[
+                function transferFrom(address, address, uint256)
+                function transfer(address, uint256)
+                function deposit()
+                function withdraw(uint256)
+                function mint(address, uint256)
+                function burnFrom(address, uint256)
+                event Transfer(address indexed _from, address indexed _to, uint256 _value)
+                event Approval(address indexed _owner, address indexed _spender, uint256 _value)
+            ]"#,
+    event_derives(serde::Deserialize, serde::Serialize)
+);
 
 #[derive(Debug, Clone)]
 /// Decodes ERC20 calls
@@ -30,17 +44,7 @@ impl Inspector for ERC20 {
 
 impl ERC20 {
     pub fn new() -> Self {
-        Self(BaseContract::from(
-            parse_abi(&[
-                "function transferFrom(address, address, uint256)",
-                "function transfer(address, uint256)",
-                "function deposit()",
-                "function withdraw(uint256)",
-                "function mint(address, uint256)",
-                "function burnFrom(address, uint256)",
-            ])
-            .expect("could not parse erc20 abi"),
-        ))
+        Self(BaseContract::from(ERC20CONTRACT_ABI.clone()))
     }
 
     /// Parse a Call trace to discover a token action

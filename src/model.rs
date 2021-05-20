@@ -141,6 +141,7 @@ pub enum CallClassification {
     Transfer,
     Liquidation,
     AddLiquidity,
+    RemoveLiquidity,
     Repay,
     Borrow,
     /// A swap
@@ -179,6 +180,7 @@ impl FromStr for CallClassification {
             "transfer" => Ok(CallClassification::Transfer),
             "liquidation" => Ok(CallClassification::Liquidation),
             "addliquidity" => Ok(CallClassification::AddLiquidity),
+            "removeliquidity" => Ok(CallClassification::RemoveLiquidity),
             "borrow" => Ok(CallClassification::Borrow),
             "repay" => Ok(CallClassification::Repay),
             "swap" => Ok(CallClassification::Swap),
