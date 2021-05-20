@@ -12,6 +12,8 @@ pub use inspection::Inspection;
 use crate::is_subtrace;
 use crate::model::{EventLog, InternalCall};
 use crate::types::actions::SpecificAction;
+use ethers::contract::EthLogDecode;
+use itertools::Itertools;
 use std::collections::BTreeMap;
 
 pub mod actions;
@@ -254,6 +256,8 @@ pub struct TransactionData {
     logs: BTreeMap<U256, TransactionLog>,
     /// All internal calls sorted by trace
     calls: BTreeMap<CallTraceAddress, InternalCall>,
+    /// calls and their logs identified by `call.to == log.adress `
+    logs_by: BTreeMap<CallTraceAddress, Vec<U256>>,
     /// actions identified in this transaction
     actions: Vec<Action>,
 }
@@ -315,22 +319,48 @@ impl TransactionData {
         self.logs().filter(move |c| c.log_index < index)
     }
 
-    /// Returns an iterator over all logs that are assigned to sub calls of the call assigned to the log with the given index.
-    pub fn sub_logs(
-        &self,
-        log_index: impl AsRef<U256>,
-    ) -> impl Iterator<Item = (&CallTraceAddress, &EventLog)> {
-        let index = *log_index.as_ref();
-        let mut trace = None;
-        self.assigned_logs()
-            .skip_while(move |(t, log)| {
-                if log.log_index == index {
-                    trace = Some(*t);
-                }
-                trace.is_none()
+    /// All logs issued by the callee (`call.to`) if this call
+    pub fn logs_by_callee<'a: 'b, 'b>(
+        &'a self,
+        trace_address: &'b [usize],
+    ) -> impl Iterator<Item = &TransactionLog> {
+        self.logs_by
+            .get(trace_address)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(move |idx| &self.logs[&idx])
+    }
+
+    /// Returns an iterator over all logs that resulted due to this call
+    pub fn call_logs<'a: 'b, 'b>(
+        &'a self,
+        trace_address: &'b [usize],
+    ) -> impl Iterator<Item = (&InternalCall, &EventLog)> {
+        self.logs_by_callee(trace_address)
+            .chain(
+                self.subcalls(trace_address)
+                    .flat_map(|sub| self.logs_by_callee(&sub.trace_address)),
+            )
+            .sorted_by_key(|log| log.log_index)
+            .map(move |log| {
+                (
+                    &self.calls[log.assigned_call().expect("exist; qed")],
+                    &log.inner,
+                )
             })
-            .skip(1)
-            .filter(move |(t2, _)| is_subtrace(trace.as_ref().expect("exists; qed"), t2))
+    }
+
+    /// Returns an iterator over all logs that resulted due to this call that could successfully be decoded
+    pub fn call_logs_decoded<'a: 'b, 'b, T: EthLogDecode>(
+        &'a self,
+        trace_address: &'b [usize],
+    ) -> impl Iterator<Item = (&InternalCall, &EventLog, T)> {
+        self.call_logs(trace_address).filter_map(|(call, log)| {
+            T::decode_log(&log.raw_log)
+                .map(|decoded| (call, log, decoded))
+                .ok()
+        })
     }
 
     /// Iterate over all the call's subcalls

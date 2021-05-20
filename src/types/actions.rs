@@ -8,7 +8,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 /// The types of actions
 pub enum SpecificAction {
-    Deposit(Deposit),
+    Deposit(TokenDeposit),
     WethDeposit(Deposit),
     WethWithdrawal(Withdrawal),
 
@@ -130,6 +130,29 @@ impl fmt::Debug for Transfer {
             .field("amount", &self.amount)
             .field("token", &lookup(self.token))
             .finish()
+    }
+}
+
+#[derive(Clone, PartialOrd, PartialEq)]
+pub struct TokenDeposit {
+    pub token: Address,
+    pub from: Address,
+    pub amount: U256,
+}
+
+impl fmt::Debug for TokenDeposit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Deposit")
+            .field("token", &lookup(self.from))
+            .field("from", &lookup(self.from))
+            .field("amount", &self.amount)
+            .finish()
+    }
+}
+
+impl From<TokenDeposit> for SpecificAction {
+    fn from(src: TokenDeposit) -> Self {
+        SpecificAction::Deposit(src)
     }
 }
 

@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct ArbitrageReducer;
+pub struct u16
 
 impl Reducer for ArbitrageReducer {
     fn reduce(&self, inspection: &mut Inspection) {

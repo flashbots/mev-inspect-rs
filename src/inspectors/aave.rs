@@ -4,7 +4,7 @@ use ethers::{
 };
 
 use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::actions::SpecificAction;
+use crate::types::actions::{SpecificAction, TokenDeposit};
 use crate::types::{Action, TransactionData};
 use crate::{
     addresses::AAVE_LENDING_POOL,
@@ -56,9 +56,48 @@ impl DefiProtocol for Aave {
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
         // Set liquidation amount to 0. We'll set it at the reducer
-
-        // TODO decode based on the call's events
-
+        match call.classification {
+            CallClassification::Liquidation => {
+                // eventually emitted by the liquidation manager
+                // https://github.com/aave/aave-protocol/blob/master/contracts/lendingpool/LendingPoolLiquidationManager.sol#L279
+                if let Some((_, log, liquidation)) = tx
+                    .call_logs_decoded::<LiquidationCallFilter>(&call.trace_address)
+                    .next()
+                {
+                    let action = Liquidation {
+                        sent_token: liquidation.reserve,
+                        sent_amount: liquidation.purchase_amount,
+                        received_token: liquidation.collateral,
+                        received_amount: U256::zero(),
+                        from: call.from,
+                        liquidated_user: liquidation.user,
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            CallClassification::Deposit => {
+                if let Some((_, log, deposit)) = tx
+                    .call_logs_decoded::<DepositFilter>(&call.trace_address)
+                    .next()
+                {
+                    let action = TokenDeposit {
+                        token: deposit.reserve,
+                        from: deposit.user,
+                        amount: deposit.amount,
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            _ => {}
+        };
         None
     }
 
@@ -162,7 +201,7 @@ mod tests {
             Self {
                 aave: Aave::new(),
                 erc20: ERC20::new(),
-                reducer: LiquidationReducer::new(),
+                reducer: LiquidationReducer,
             }
         }
     }
