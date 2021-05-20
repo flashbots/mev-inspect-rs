@@ -142,7 +142,7 @@ mod tests {
                 zeroex: ZeroEx::default(),
                 erc20: ERC20::new(),
                 trade: TradeReducer,
-                arbitrage: ArbitrageReducer::default(),
+                arbitrage: ArbitrageReducer,
             }
         }
     }

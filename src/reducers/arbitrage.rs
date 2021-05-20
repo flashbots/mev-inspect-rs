@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct u16
+pub struct ArbitrageReducer;
 
 impl Reducer for ArbitrageReducer {
     fn reduce(&self, inspection: &mut Inspection) {
@@ -76,7 +76,7 @@ mod tests {
     use crate::types::actions::{Arbitrage, Trade, Transfer};
 
     fn test_trade_to_arbitrage(input: Vec<Classification>, expected: Vec<Classification>) {
-        let uniswap = ArbitrageReducer::default();
+        let uniswap = ArbitrageReducer;
         let mut inspection = mk_inspection(input);
         uniswap.reduce(&mut inspection);
         assert_eq!(inspection.actions, expected);

@@ -25,6 +25,8 @@ pub fn mk_inspection(actions: Vec<Classification>) -> Inspection {
         hash: TxHash::zero(),
         block_number: 0,
         transaction_position: 0,
+        internal_calls: vec![],
+        logs: vec![],
     }
 }
 

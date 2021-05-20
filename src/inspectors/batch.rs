@@ -411,9 +411,9 @@ mod tests {
             ],
             vec![
                 // Classify liquidations first
-                Box::new(LiquidationReducer::new()),
+                Box::new(LiquidationReducer),
                 Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
+                Box::new(ArbitrageReducer),
             ],
         );
         inspector.inspect(&mut inspection);
@@ -459,10 +459,7 @@ mod tests {
                 Box::new(Curve::new(vec![])),
                 Box::new(Balancer::default()),
             ],
-            vec![
-                Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
-            ],
+            vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
         );
         inspector.inspect(&mut inspection);
         inspector.reduce(&mut inspection);
@@ -494,10 +491,7 @@ mod tests {
                 Box::new(Curve::new(vec![])),
                 Box::new(Balancer::default()),
             ],
-            vec![
-                Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
-            ],
+            vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
         );
         inspector.inspect(&mut inspection);
         inspector.reduce(&mut inspection);
@@ -526,10 +520,7 @@ mod tests {
                 Box::new(Uniswap::default()),
                 Box::new(Curve::new(vec![])),
             ],
-            vec![
-                Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
-            ],
+            vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
         );
         inspector.inspect(&mut inspection);
         inspector.reduce(&mut inspection);
@@ -564,9 +555,9 @@ mod tests {
                 Box::new(Curve::new(vec![])),
             ],
             vec![
-                Box::new(LiquidationReducer::new()),
+                Box::new(LiquidationReducer),
                 Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
+                Box::new(ArbitrageReducer),
             ],
         );
         inspector.inspect(&mut inspection);
@@ -592,9 +583,9 @@ mod tests {
                 Box::new(Curve::new(vec![])),
             ],
             vec![
-                Box::new(LiquidationReducer::new()),
+                Box::new(LiquidationReducer),
                 Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
+                Box::new(ArbitrageReducer),
             ],
         );
         inspector.inspect(&mut inspection);
@@ -633,9 +624,9 @@ mod tests {
                 Box::new(Curve::new(vec![])),
             ],
             vec![
-                Box::new(LiquidationReducer::new()),
+                Box::new(LiquidationReducer),
                 Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
+                Box::new(ArbitrageReducer),
             ],
         );
         inspector.inspect(&mut inspection);
@@ -669,10 +660,7 @@ mod tests {
 
         let inspector = BatchInspector::new(
             vec![Box::new(ERC20::new()), Box::new(Uniswap::default())],
-            vec![
-                Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
-            ],
+            vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
         );
         inspector.inspect(&mut inspection);
         inspector.reduce(&mut inspection);
@@ -696,10 +684,7 @@ mod tests {
 
         let inspector = BatchInspector::new(
             vec![Box::new(ERC20::new()), Box::new(Uniswap::default())],
-            vec![
-                Box::new(TradeReducer),
-                Box::new(ArbitrageReducer::default()),
-            ],
+            vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
         );
         inspector.inspect(&mut inspection);
         inspector.reduce(&mut inspection);

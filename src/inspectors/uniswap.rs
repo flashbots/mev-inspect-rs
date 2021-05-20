@@ -333,7 +333,7 @@ pub mod tests {
                 erc20: ERC20::new(),
                 uni: Uniswap::default(),
                 trade: TradeReducer,
-                arb: ArbitrageReducer::default(),
+                arb: ArbitrageReducer,
             }
         }
     }

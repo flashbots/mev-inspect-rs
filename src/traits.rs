@@ -61,7 +61,7 @@ pub trait DefiProtocol {
     ///
     /// This will first `classify` each call, if no action was derived from the standalone call,
     /// the action will be tried to be decoded with `decode_call_action`
-    fn inspect(&self, tx: &mut TransactionData) {
+    fn inspect_tx(&self, tx: &mut TransactionData) {
         // iterate over all calls that are not processed yet
         let mut actions = Vec::new();
         let mut decode_again = Vec::new();

@@ -94,7 +94,7 @@ mod tests {
     use crate::types::actions::{Liquidation, Trade, Transfer};
 
     fn test_profitable_liquidation(input: Vec<Classification>, expected: Vec<Classification>) {
-        let aave = LiquidationReducer::new();
+        let aave = LiquidationReducer;
         let mut inspection = mk_inspection(input);
         aave.reduce(&mut inspection);
         assert_eq!(inspection.actions, expected);

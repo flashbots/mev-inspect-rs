@@ -207,7 +207,7 @@ mod tests {
                 inspector: Curve::new(vec![]),
                 erc20: ERC20::new(),
                 reducer1: TradeReducer,
-                reducer2: ArbitrageReducer::default(),
+                reducer2: ArbitrageReducer,
             }
         }
     }

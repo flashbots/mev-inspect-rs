@@ -176,7 +176,7 @@ mod tests {
                 erc20: ERC20::new(),
                 balancer: Balancer::default(),
                 trade: TradeReducer,
-                arb: ArbitrageReducer::default(),
+                arb: ArbitrageReducer,
             }
         }
     }
