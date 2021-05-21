@@ -76,13 +76,7 @@ impl TxReducer for ArbitrageReducer {
         let trades: Vec<_> = tx
             .actions()
             .enumerate()
-            .filter_map(|(idx, action)| {
-                if let Some(trade) = action.inner.as_trade() {
-                    Some((idx, action, trade))
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(idx, action)| action.inner.as_trade().map(|trade| (idx, action, trade)))
             .collect();
 
         // action index to arbitrage, if None then prune
