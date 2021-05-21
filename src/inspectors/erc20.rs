@@ -1,13 +1,15 @@
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::{Action, Protocol, TransactionData};
 use crate::{
     addresses::{ETH, WETH},
     types::{
         actions::{Deposit, SpecificAction, Transfer, Withdrawal},
         Classification, Inspection,
     },
-    Inspector,
+    DefiProtocol, Inspector, ProtocolContracts,
 };
 use ethers::{
-    contract::{abigen, BaseContract},
+    contract::{abigen, BaseContract, EthLogDecode},
     types::{Address, Call as TraceCall, CallType, U256},
 };
 
@@ -39,6 +41,117 @@ impl Inspector for ERC20 {
                 }
             }
         })
+    }
+}
+
+impl DefiProtocol for ERC20 {
+    fn base_contracts(&self) -> ProtocolContracts {
+        ProtocolContracts::Single(&self.0)
+    }
+
+    fn protocol() -> Protocol {
+        Protocol::Erc20
+    }
+
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        Erc20ContractEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        match call.classification {
+            CallClassification::Transfer => {
+                if let Some((_, log, transfer)) = tx
+                    .call_logs_decoded::<TransferFilter>(&call.trace_address)
+                    .next()
+                {
+                    let action = Transfer {
+                        from: transfer.from,
+                        to: transfer.to,
+                        amount: transfer.value,
+                        token: log.address,
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
+        if self
+            .0
+            .decode::<(Address, Address, U256), _>("transferFrom", &call.input)
+            .is_ok()
+        {
+            Some((CallClassification::Transfer, None))
+        } else if let Ok((from, amount)) =
+            self.0.decode::<(Address, U256), _>("burnFrom", &call.input)
+        {
+            Some((
+                CallClassification::Transfer,
+                Some(SpecificAction::Transfer(Transfer {
+                    from,
+                    // Burns send to `0x0`
+                    to: Address::zero(),
+                    amount,
+                    token: call.to,
+                })),
+            ))
+        } else if let Ok((to, amount)) = self.0.decode::<(Address, U256), _>("mint", &call.input) {
+            Some((
+                CallClassification::Transfer,
+                Some(SpecificAction::Transfer(Transfer {
+                    // Mints create from `0x0`
+                    from: Address::zero(),
+                    to,
+                    amount,
+                    token: call.to,
+                })),
+            ))
+        } else if self
+            .0
+            .decode::<(Address, U256), _>("transfer", &call.input)
+            .is_ok()
+        {
+            Some((CallClassification::Transfer, None))
+        } else if let Ok(amount) = self.0.decode::<U256, _>("withdraw", &call.input) {
+            Some((
+                CallClassification::Withdrawal,
+                Some(SpecificAction::WethWithdrawal(Withdrawal {
+                    to: call.from,
+                    amount,
+                })),
+            ))
+        } else if call.input.starts_with(&ethers::utils::id("deposit()")) {
+            Some((
+                CallClassification::Deposit,
+                Some(SpecificAction::WethDeposit(Deposit {
+                    from: call.from,
+                    amount: call.value,
+                })),
+            ))
+        } else if call.value > 0.into() && call.from != *WETH {
+            // ETH transfer
+            Some((
+                CallClassification::Transfer,
+                Some(SpecificAction::Transfer(Transfer {
+                    from: call.from,
+                    to: call.to,
+                    amount: call.value,
+                    token: *ETH,
+                })),
+            ))
+        } else {
+            None
+        }
     }
 }
 

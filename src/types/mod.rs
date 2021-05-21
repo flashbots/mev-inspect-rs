@@ -79,6 +79,9 @@ pub enum Protocol {
     // Misc.
     Flashloan,
     DyDx,
+
+    /// Misc erc20
+    Erc20,
 }
 
 impl Protocol {
@@ -145,6 +148,7 @@ impl FromStr for Protocol {
             "zeroex" => Ok(Protocol::ZeroEx),
             "flashloan" => Ok(Protocol::Flashloan),
             "dydx" => Ok(Protocol::DyDx),
+            "erc20" => Ok(Protocol::Erc20),
             s => Err(format!("`{}` is nat a valid protocol", s)),
         }
     }
