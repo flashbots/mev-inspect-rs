@@ -17,7 +17,7 @@ use thiserror::Error;
 
 use crate::mevdb::BatchInserts;
 use crate::model::EventLog;
-use crate::types::{EvalError, Evaluation};
+use crate::types::{EvalError, Evaluation, TransactionData};
 use crate::{
     types::inspection::{Inspection, TraceWrapper},
     HistoricalPrice, Inspector, MevDB, Reducer,
@@ -268,7 +268,7 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                         .collect::<HashMap<TxHash, U256>>();
 
                     // tx -> logs
-                    let mut tx_logs = logs
+                    let mut all_tx_logs = logs
                         .into_iter()
                         .filter_map(|log| EventLog::try_from(log).ok())
                         .into_group_map_by(|log| log.transaction_hash);
@@ -283,13 +283,22 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                         })
                         .collect::<HashMap<TxHash, U256>>();
 
+                    for tx_data in traces
+                        .clone()
+                        .into_iter()
+                        .group_by(|t| t.transaction_hash.expect("tx hash exists"))
+                        .into_iter()
+                        .filter_map(|(tx, tx_traces)| {
+                            let tx_logs = all_tx_logs.remove(&tx).unwrap_or_default();
+                            TransactionData::create(tx_traces, tx_logs).ok()
+                        })
+                    {}
+
                     for inspection in this.inspector.inspect_many(traces) {
                         let gas_used = gas_used_txs
                             .get(&inspection.hash)
                             .cloned()
                             .unwrap_or_default();
-
-                        let logs = tx_logs.remove(&inspection.hash).unwrap_or_default();
 
                         let gas_price = gas_price_txs
                             .get(&inspection.hash)

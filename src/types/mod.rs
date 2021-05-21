@@ -3,15 +3,18 @@ use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
-use ethers::types::{Address, TxHash, U256};
+use ethers::types::{Action as TraceAction, Address, CallType, Trace, TxHash, U256};
 
 pub use classification::Classification;
 pub use evaluation::{EvalError, Evaluation};
 pub use inspection::Inspection;
 
-use crate::is_subtrace;
-use crate::model::{EventLog, InternalCall};
-use crate::types::actions::SpecificAction;
+use crate::{
+    addresses::{DYDX, FILTER, ZEROX},
+    is_subtrace,
+    model::{EventLog, InternalCall},
+    types::actions::SpecificAction,
+};
 use ethers::contract::EthLogDecode;
 use itertools::Itertools;
 use std::collections::BTreeMap;
@@ -221,7 +224,6 @@ impl Action {
 }
 
 /// To detect trades: all Internal calls
-// TODO drop `Inspection` in favor of this model?
 #[derive(Debug, Clone)]
 pub struct TransactionData {
     /// Success / failure
@@ -263,8 +265,125 @@ pub struct TransactionData {
 }
 
 impl TransactionData {
-    pub fn new(inspection: &Inspection) -> Self {
-        todo!()
+    pub fn create(
+        traces: impl IntoIterator<Item = Trace>,
+        logs: Vec<EventLog>,
+    ) -> Result<Self, ()> {
+        let mut traces = traces.into_iter().peekable();
+
+        // get the first trace
+        let trace = match traces.peek() {
+            Some(inner) => inner,
+            None => return Err(()),
+        };
+        let initial_call = match trace.action {
+            TraceAction::Call(ref call) => call,
+            // the first action we care about must be a call. everything else
+            // is junk
+            _ => return Err(()),
+        };
+
+        // Filter out unwanted calls
+        if FILTER.get(&initial_call.to).is_some() {
+            return Err(());
+        }
+
+        let mut status = Status::Success;
+        let mut proxy_impl = None;
+        let from = initial_call.from;
+        let contract = initial_call.to;
+        let hash = trace.transaction_hash.unwrap_or_else(TxHash::zero);
+        let block_number = trace.block_number;
+        let transaction_position = trace.transaction_position.expect("Trace has position");
+
+        let logs: BTreeMap<_, _> = logs
+            .into_iter()
+            .map(|log| {
+                (
+                    log.log_index,
+                    TransactionLog {
+                        inner: log,
+                        assigned_to_call: None,
+                    },
+                )
+            })
+            .collect();
+
+        let calls: BTreeMap<_, _> = traces
+            .into_iter()
+            .filter_map(|trace| {
+                // Revert if all subtraces revert? There are counterexamples
+                // e.g. when a low-level trace's revert is handled
+                if trace.error.is_some() {
+                    status = Status::Reverted;
+                }
+
+                if let TraceAction::Call(call) = trace.action {
+                    // find internal calls
+                    let internal_call = InternalCall {
+                        transaction_hash: trace.transaction_hash.expect("tx exists"),
+                        call_type: call.call_type.clone(),
+                        trace_address: trace.trace_address.clone(),
+                        value: call.value,
+                        gas_used: call.gas,
+                        from: call.from,
+                        to: call.to,
+                        input: call.input.to_vec(),
+                        protocol: None,
+                        classification: Default::default(),
+                    };
+
+                    if proxy_impl.is_none()
+                        && call.call_type == CallType::DelegateCall
+                        && call.from == contract
+                    {
+                        proxy_impl = Some(call.to);
+                    }
+
+                    Some((trace.trace_address, internal_call))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let logs_by: BTreeMap<_, _> = calls
+            .values()
+            .map(|call| {
+                let call_logs: Vec<_> = logs
+                    .values()
+                    .filter(|log| log.address == call.to)
+                    .map(|log| log.log_index)
+                    .collect();
+                (call.trace_address.clone(), call_logs)
+            })
+            .collect();
+
+        let mut inspection = Self {
+            status,
+            // all unclassified calls
+            actions: Vec::new(),
+            from,
+            contract,
+            protocol: None,
+            proxy_impl,
+            hash,
+            block_number,
+            transaction_position,
+            logs,
+            calls,
+            logs_by,
+        };
+
+        if inspection.contract == *DYDX {
+            inspection.protocol = Some(Protocol::DyDx);
+        }
+
+        if inspection.contract == *ZEROX {
+            inspection.protocol = Some(Protocol::ZeroEx);
+        }
+
+        Ok(inspection)
     }
 
     pub fn get_call(&self, trace_address: &CallTraceAddress) -> Option<&InternalCall> {
