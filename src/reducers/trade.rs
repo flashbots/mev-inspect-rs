@@ -1,7 +1,8 @@
+use crate::types::TransactionData;
 use crate::{
     inspectors::find_matching,
     types::{actions::Trade, Classification, Inspection},
-    Reducer,
+    Reducer, TxReducer,
 };
 
 pub struct TradeReducer;
@@ -63,6 +64,76 @@ impl Reducer for TradeReducer {
         prune
             .iter()
             .for_each(|p| inspection.actions[*p] = Classification::Prune);
+    }
+}
+
+impl TxReducer for TradeReducer {
+    fn reduce_tx(&self, tx: &mut TransactionData) {
+        let mut trades = Vec::new();
+        let mut prune = Vec::new();
+
+        for (idx, action, transfer) in tx.actions().enumerate().filter_map(|(idx, action)| {
+            action
+                .inner
+                .as_transfer()
+                .map(|transfer| (idx, action, transfer))
+        }) {
+            // find the first transfer after it
+            if let Some((transfer2_idx, action2, transfer2)) = tx
+                .actions()
+                .enumerate()
+                .skip(idx + 1)
+                .filter_map(|(i, a)| {
+                    action
+                        .inner
+                        .as_transfer()
+                        .filter(|t| {
+                            t.to == transfer.from
+                                && t.from == transfer.to
+                                && t.token != transfer.token
+                        })
+                        .map(|t| (i, a, t))
+                })
+                .next()
+            {
+                // only match transfers which were on the same rank of the trace
+                // trades across multiple trace levels are handled by their individual
+                // inspectors
+                if action.call.len() != action2.call.len() {
+                    continue;
+                }
+                trades.push((
+                    idx,
+                    Trade {
+                        t1: transfer.clone(),
+                        t2: transfer2.clone(),
+                    },
+                ));
+
+                // If there is no follow-up transfer that uses `transfer2`, prune it:
+                if let Some((_, action)) = tx.actions().enumerate().skip(transfer2_idx + 1).next() {
+                    if action
+                        .inner
+                        .as_transfer()
+                        .filter(|t| t.to == transfer2.from && t.from == transfer2.to)
+                        .is_some()
+                    {
+                        continue;
+                    }
+                }
+                prune.push(transfer2_idx);
+            }
+        }
+        // replace with profitable liquidation
+        for (idx, trade) in trades {
+            if let Some(action) = tx.get_action_mut(idx) {
+                action.inner = trade.into();
+            }
+        }
+
+        for idx in prune {
+            tx.remove_action(idx);
+        }
     }
 }
 
