@@ -1,11 +1,13 @@
+use crate::types::TransactionData;
 use crate::{
     inspectors::find_matching,
     types::{
         actions::{Arbitrage, SpecificAction},
         Classification, Inspection,
     },
-    Reducer,
+    Reducer, TxReducer,
 };
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub struct ArbitrageReducer;
@@ -65,6 +67,60 @@ impl Reducer for ArbitrageReducer {
                     },
                     _ => *a = Classification::Prune,
                 })
+        }
+    }
+}
+
+impl TxReducer for ArbitrageReducer {
+    fn reduce_tx(&self, tx: &mut TransactionData) {
+        let trades: Vec<_> = tx
+            .actions()
+            .enumerate()
+            .filter_map(|(idx, action)| {
+                if let Some(trade) = action.inner.as_trade() {
+                    Some((idx, action, trade))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // action index to arbitrage, if None then prune
+        let mut updates = BTreeMap::new();
+        let mut actions = trades.iter();
+
+        while let Some((idx, _, trade)) = actions.next() {
+            if let Some((reverse_idx, _, reverse_trade)) = actions
+                .clone()
+                .filter(|(_, _, reverse)| {
+                    // find a reverse trade
+                    reverse.t2.token == trade.t1.token
+                })
+                .next()
+            {
+                if reverse_trade.t2.amount > trade.t1.amount {
+                    let arbitrage = Arbitrage {
+                        profit: reverse_trade.t2.amount.saturating_sub(trade.t1.amount),
+                        token: reverse_trade.t2.token,
+                        to: reverse_trade.t2.to,
+                    };
+
+                    updates.insert(*idx, Some(arbitrage));
+                    for i in (idx + 1)..=*reverse_idx {
+                        updates.insert(i, None);
+                    }
+                }
+            }
+        }
+        // iterating from highest index to lowest ensure `remove` is safe
+        for (idx, arbitrage) in updates.into_iter().rev() {
+            if let Some(arbitrage) = arbitrage {
+                if let Some(action) = tx.get_action_mut(idx) {
+                    action.inner = arbitrage.into();
+                }
+            } else {
+                tx.remove_action(idx);
+            }
         }
     }
 }

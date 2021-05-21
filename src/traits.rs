@@ -12,6 +12,13 @@ pub trait Reducer {
     fn reduce(&self, _: &mut Inspection);
 }
 
+pub trait TxReducer {
+    /// By default the reducer is empty. A consumer may optionally
+    /// implement this method to perform additional actions on the classified &
+    /// filtered results.
+    fn reduce_tx(&self, _: &mut TransactionData);
+}
+
 /// Trait for defining an inspector for a specific DeFi protocol
 pub trait Inspector: core::fmt::Debug {
     /// Classifies an inspection's actions

@@ -17,7 +17,7 @@ use crate::{
 };
 use ethers::contract::EthLogDecode;
 use itertools::Itertools;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub mod actions;
 
@@ -257,8 +257,10 @@ pub struct TransactionData {
     /// log_index  -> Log
     logs: BTreeMap<U256, TransactionLog>,
     /// All internal calls sorted by trace
-    calls: BTreeMap<CallTraceAddress, InternalCall>,
-    /// calls and their logs identified by `call.to == log.adress `
+    calls: Vec<InternalCall>,
+    calls_idx: HashMap<CallTraceAddress, usize>,
+
+    /// calls and their logs (indices) identified by `call.to == log.adress `
     logs_by: BTreeMap<CallTraceAddress, Vec<U256>>,
     /// actions identified in this transaction
     actions: Vec<Action>,
@@ -309,7 +311,7 @@ impl TransactionData {
             })
             .collect();
 
-        let calls: BTreeMap<_, _> = traces
+        let calls: Vec<_> = traces
             .into_iter()
             .filter_map(|trace| {
                 // Revert if all subtraces revert? There are counterexamples
@@ -323,7 +325,7 @@ impl TransactionData {
                     let internal_call = InternalCall {
                         transaction_hash: trace.transaction_hash.expect("tx exists"),
                         call_type: call.call_type.clone(),
-                        trace_address: trace.trace_address.clone(),
+                        trace_address: trace.trace_address,
                         value: call.value,
                         gas_used: call.gas,
                         from: call.from,
@@ -340,15 +342,21 @@ impl TransactionData {
                         proxy_impl = Some(call.to);
                     }
 
-                    Some((trace.trace_address, internal_call))
+                    Some(internal_call)
                 } else {
                     None
                 }
             })
             .collect();
 
-        let logs_by: BTreeMap<_, _> = calls
-            .values()
+        let calls_idx = calls
+            .iter()
+            .enumerate()
+            .map(|(idx, call)| (call.trace_address.clone(), idx))
+            .collect();
+
+        let logs_by = calls
+            .iter()
             .map(|call| {
                 let call_logs: Vec<_> = logs
                     .values()
@@ -372,6 +380,7 @@ impl TransactionData {
             transaction_position,
             logs,
             calls,
+            calls_idx,
             logs_by,
         };
 
@@ -387,7 +396,9 @@ impl TransactionData {
     }
 
     pub fn get_call(&self, trace_address: &CallTraceAddress) -> Option<&InternalCall> {
-        self.calls.get(trace_address)
+        self.calls_idx
+            .get(trace_address)
+            .map(|idx| &self.calls[*idx])
     }
 
     /// All the logs that are not assigned to a call yet
@@ -415,14 +426,14 @@ impl TransactionData {
     /// All the calls that are still unknown
     pub fn calls(&self) -> impl Iterator<Item = &InternalCall> {
         self.calls
-            .values()
+            .iter()
             .filter_map(|call| call.classification.is_unknown().then(|| call))
     }
 
     /// All the calls that are not resolved yet
     pub fn calls_mut(&mut self) -> impl Iterator<Item = &mut InternalCall> {
         self.calls
-            .values_mut()
+            .iter_mut()
             .filter_map(|call| call.classification.is_unknown().then(|| call))
     }
 
@@ -463,10 +474,12 @@ impl TransactionData {
             )
             .sorted_by_key(|log| log.log_index)
             .map(move |log| {
-                (
-                    &self.calls[log.assigned_call().expect("exist; qed")],
-                    &log.inner,
-                )
+                let call = log
+                    .assigned_call()
+                    .and_then(|t| self.get_call(t))
+                    .expect("call exist; qed");
+
+                (call, &log.inner)
             })
     }
 
@@ -510,15 +523,37 @@ impl TransactionData {
         self.actions.push(action)
     }
 
-    /// Add a series of actions
+    /// Add a series of actions and keeps them sorted by call trace
     pub fn extend_actions(&mut self, actions: impl Iterator<Item = Action>) {
         for action in actions {
-            self.push_action(action);
+            let num_parents = self
+                .actions
+                .iter()
+                .take_while(|probe| {
+                    let t1 = &probe.call;
+                    let t2 = &action.call;
+                    t1 == t2 || is_subtrace(t1, t2)
+                })
+                .count();
+            self.actions.insert(num_parents, action)
         }
     }
 
-    /// Iterator over all the actions identified for this tx
+    /// Iterator over all the actions identified for this tx sorted by the associated call
     pub fn actions(&self) -> impl Iterator<Item = &Action> {
         self.actions.iter()
+    }
+
+    /// Iterator over all the actions identified for this tx sorted by the associated call
+    pub fn actions_mut(&mut self) -> impl Iterator<Item = &mut Action> {
+        self.actions.iter_mut()
+    }
+
+    pub fn remove_action(&mut self, idx: usize) -> Action {
+        self.actions.remove(idx)
+    }
+
+    pub fn get_action_mut(&mut self, idx: usize) -> Option<&mut Action> {
+        self.actions.get_mut(idx)
     }
 }
