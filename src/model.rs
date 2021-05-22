@@ -296,8 +296,6 @@ pub struct EventLog {
     pub transaction_index: u64,
     /// log position within the block
     pub log_index: U256,
-    /// log index position
-    pub transaction_log_index: U256,
     /// The number of the block
     pub block_number: u64,
 }
@@ -333,7 +331,6 @@ impl TryFrom<Log> for EventLog {
             },
             transaction_index: transaction_index.ok_or(())?.as_u64(),
             log_index: log_index.ok_or(())?,
-            transaction_log_index: transaction_log_index.ok_or(())?,
             block_number: block_number.ok_or(())?.as_u64(),
         })
     }
@@ -370,7 +367,6 @@ impl SqlRowExt for EventLog {
             raw_log: RawLog { topics, data },
             transaction_index,
             log_index,
-            transaction_log_index,
             block_number,
         })
     }

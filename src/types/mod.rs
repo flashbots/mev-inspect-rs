@@ -16,7 +16,6 @@ use crate::{
     types::actions::SpecificAction,
 };
 use ethers::contract::EthLogDecode;
-use itertools::Itertools;
 use std::collections::{BTreeMap, HashMap};
 
 pub mod actions;
@@ -454,9 +453,9 @@ impl TransactionData {
     }
 
     /// All logs issued by the callee (`call.to`) if this call
-    pub fn logs_by_callee<'a: 'b, 'b>(
-        &'a self,
-        trace_address: &'b [usize],
+    pub fn logs_by_callee(
+        &self,
+        trace_address: &CallTraceAddress,
     ) -> impl Iterator<Item = &TransactionLog> {
         self.logs_by
             .get(trace_address)
@@ -467,30 +466,42 @@ impl TransactionData {
     }
 
     /// Returns an iterator over all logs that resulted due to this call
-    pub fn call_logs<'a: 'b, 'b>(
-        &'a self,
-        trace_address: &'b [usize],
+    pub fn call_logs(
+        &self,
+        trace_address: &CallTraceAddress,
     ) -> impl Iterator<Item = (&InternalCall, &EventLog)> {
-        self.logs_by_callee(trace_address)
-            .chain(
-                self.subcalls(trace_address)
-                    .flat_map(|sub| self.logs_by_callee(&sub.trace_address)),
-            )
-            .sorted_by_key(|log| log.log_index)
-            .map(move |log| {
-                let call = log
-                    .assigned_call()
-                    .and_then(|t| self.get_call(t))
-                    .expect("call exist; qed");
-
-                (call, &log.inner)
+        let mut logs_by: BTreeMap<_, _> = self
+            .logs_by_callee(trace_address)
+            .map(|log| {
+                (
+                    log.log_index,
+                    (
+                        self.get_call(trace_address).expect("call exists; qed."),
+                        &log.inner,
+                    ),
+                )
             })
+            .collect();
+
+        for sub in self.subcalls(trace_address) {
+            logs_by.extend(self.logs_by_callee(&sub.trace_address).map(|log| {
+                (
+                    log.log_index,
+                    (
+                        self.get_call(&sub.trace_address)
+                            .expect("call exists; qed."),
+                        &log.inner,
+                    ),
+                )
+            }))
+        }
+        logs_by.into_values()
     }
 
     /// Returns an iterator over all logs that resulted due to this call that could successfully be decoded
-    pub fn call_logs_decoded<'a: 'b, 'b, T: EthLogDecode>(
-        &'a self,
-        trace_address: &'b [usize],
+    pub fn call_logs_decoded<T: EthLogDecode>(
+        &self,
+        trace_address: &CallTraceAddress,
     ) -> impl Iterator<Item = (&InternalCall, &EventLog, T)> {
         self.call_logs(trace_address).filter_map(|(call, log)| {
             T::decode_log(&log.raw_log)
@@ -502,7 +513,7 @@ impl TransactionData {
     /// Iterate over all the call's subcalls
     pub fn subcalls<'a: 'b, 'b>(
         &'a self,
-        t1: &'b [usize],
+        t1: &'b CallTraceAddress,
     ) -> impl Iterator<Item = &'a InternalCall> + 'b {
         self.calls().filter(move |c| {
             let t2 = &c.trace_address;
@@ -524,22 +535,27 @@ impl TransactionData {
                 .get_mut(log)
                 .and_then(|l| l.assign_to(action.call.clone()));
         }
-        self.actions.push(action)
+        let action_idx = self
+            .calls_idx
+            .get(&action.call)
+            .cloned()
+            .unwrap_or_default();
+        let num_parents = self
+            .actions
+            .iter()
+            .take_while(|probe| {
+                // sort by the calls index
+                let probe_idx = self.calls_idx.get(&probe.call).cloned().unwrap_or_default();
+                action_idx >= probe_idx
+            })
+            .count();
+        self.actions.insert(num_parents, action);
     }
 
     /// Add a series of actions and keeps them sorted by call trace
     pub fn extend_actions(&mut self, actions: impl Iterator<Item = Action>) {
         for action in actions {
-            let num_parents = self
-                .actions
-                .iter()
-                .take_while(|probe| {
-                    let t1 = &probe.call;
-                    let t2 = &action.call;
-                    t1 == t2 || is_subtrace(t1, t2)
-                })
-                .count();
-            self.actions.insert(num_parents, action)
+            self.push_action(action)
         }
     }
 

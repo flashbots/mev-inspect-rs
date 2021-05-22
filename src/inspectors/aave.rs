@@ -55,6 +55,7 @@ impl DefiProtocol for Aave {
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        dbg!(call.classification);
         match call.classification {
             CallClassification::Liquidation => {
                 // eventually emitted by the liquidation manager
@@ -179,9 +180,11 @@ impl Inspector for Aave {
 mod tests {
     use crate::{
         inspectors::ERC20, reducers::LiquidationReducer, test_helpers::read_trace, Reducer,
+        TxReducer,
     };
 
     use super::*;
+    use crate::test_helpers::read_tx;
 
     struct MyInspector {
         aave: Aave,
@@ -197,6 +200,12 @@ mod tests {
             inspection.prune();
         }
 
+        fn inspect_tx(&self, tx: &mut TransactionData) {
+            self.aave.inspect_tx(tx);
+            self.erc20.inspect_tx(tx);
+            self.reducer.reduce_tx(tx);
+        }
+
         fn new() -> Self {
             Self {
                 aave: Aave::new(),
@@ -204,6 +213,14 @@ mod tests {
                 reducer: LiquidationReducer,
             }
         }
+    }
+
+    #[tokio::test]
+    async fn simple_liquidation2() {
+        let mut tx = read_tx("simple_liquidation.data.json");
+        let aave = MyInspector::new();
+        aave.inspect_tx(&mut tx);
+        dbg!(tx.actions().collect::<Vec<_>>());
     }
 
     #[tokio::test]

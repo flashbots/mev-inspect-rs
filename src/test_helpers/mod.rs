@@ -1,10 +1,19 @@
-use crate::types::{inspection::TraceWrapper, Classification, Inspection, Status};
-use ethers::types::{Address, Trace, TxHash};
+use crate::model::EventLog;
+use crate::types::{inspection::TraceWrapper, Classification, Inspection, Status, TransactionData};
+use ethers::types::{Address, Log, Trace, TxHash};
 use once_cell::sync::Lazy;
+use serde::__private::TryFrom;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, convert::TryInto};
 
 pub const TRACE: &str = include_str!("../../res/11017338.trace.json");
 pub static TRACES: Lazy<Vec<Trace>> = Lazy::new(|| serde_json::from_str(TRACE).unwrap());
+
+#[derive(Serialize, Deserialize)]
+pub struct TxInfo {
+    pub traces: Vec<Trace>,
+    pub logs: Vec<Log>,
+}
 
 pub fn addrs() -> Vec<Address> {
     use ethers::core::rand::thread_rng;
@@ -34,6 +43,16 @@ pub fn read_trace(path: &str) -> Inspection {
     let input = std::fs::read_to_string(format!("res/{}", path)).unwrap();
     let traces: Vec<Trace> = serde_json::from_str(&input).unwrap();
     TraceWrapper(traces).try_into().unwrap()
+}
+
+pub fn read_tx(path: &str) -> TransactionData {
+    let input = std::fs::read_to_string(format!("res/{}", path)).unwrap();
+    let TxInfo { traces, logs } = serde_json::from_str(&input).unwrap();
+    let logs = logs
+        .into_iter()
+        .filter_map(|log| EventLog::try_from(log).ok())
+        .collect();
+    TransactionData::create(traces.into_iter(), logs).unwrap()
 }
 
 pub fn get_trace(hash: &str) -> Inspection {

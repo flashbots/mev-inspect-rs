@@ -42,7 +42,7 @@ pub use mevdb::{BatchInserts, MevDB};
 mod prices;
 pub use prices::HistoricalPrice;
 
-mod model;
+pub mod model;
 mod sandwich;
 
 /// Checks if `a2` is a subtrace of `a1`
@@ -77,6 +77,7 @@ mod tests {
     #[test]
     fn check() {
         let test_cases = vec![
+            (vec![0, 0, 3, 0, 9, 1], vec![0, 0, 7], false),
             (vec![0], vec![0, 1], true),
             (vec![0], vec![0, 0], true),
             (vec![0, 1], vec![0, 1, 0], true),

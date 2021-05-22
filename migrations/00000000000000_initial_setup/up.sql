@@ -73,12 +73,10 @@ CREATE TABLE IF NOT EXISTS event_logs
     transaction_index     NUMERIC not null,
     -- log position within the block
     log_index             NUMERIC not null,
-    -- log index position
-    transaction_log_index NUMERIC not null,
     -- the block's number
     block_number          NUMERIC not null,
 
-    PRIMARY KEY (transaction_hash, transaction_log_index)
+    PRIMARY KEY (transaction_hash, log_index)
 );
 
 CREATE INDEX IF NOT EXISTS event_logs_block_signature_idx ON event_logs (block_number, signature);

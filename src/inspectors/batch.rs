@@ -283,7 +283,7 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                         })
                         .collect::<HashMap<TxHash, U256>>();
 
-                    for tx_data in traces
+                    for _tx_data in traces
                         .clone()
                         .into_iter()
                         .group_by(|t| t.transaction_hash.expect("tx hash exists"))
