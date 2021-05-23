@@ -214,6 +214,13 @@ pub struct InternalCall {
     pub classification: CallClassification,
 }
 
+impl InternalCall {
+    /// Whether this call is associated with the given protocol
+    pub fn is_protocol(&self, protocol: Protocol) -> bool {
+        self.protocol == Some(protocol)
+    }
+}
+
 impl SqlRowExt for InternalCall {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
@@ -312,7 +319,6 @@ impl TryFrom<Log> for EventLog {
             transaction_hash,
             transaction_index,
             log_index,
-            transaction_log_index,
             ..
         } = value;
 
@@ -357,7 +363,6 @@ impl SqlRowExt for EventLog {
         let transaction_index = row.try_get_u64("transaction_index")?;
         let signature = row.try_get_h256("signature")?;
         let log_index = row.try_get_u256("log_index")?;
-        let transaction_log_index = row.try_get_u256("transaction_log_index")?;
         let block_number = row.try_get_u64("block_number")?;
 
         Ok(Self {

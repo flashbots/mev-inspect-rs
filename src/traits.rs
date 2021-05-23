@@ -80,15 +80,17 @@ pub trait DefiProtocol {
             }
         }
 
+        tx.extend_actions(actions.into_iter());
+
         for call in decode_again {
             if let Some(call) = tx.get_call(&call) {
                 if let Some(action) = self.decode_call_action(call, tx) {
-                    actions.push(action);
+                    tx.push_action(action)
                 }
             }
         }
 
-        tx.extend_actions(actions.into_iter());
+        tx.remove_duplicate_transfers();
     }
 }
 

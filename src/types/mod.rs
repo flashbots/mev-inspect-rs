@@ -9,6 +9,7 @@ pub use classification::Classification;
 pub use evaluation::{EvalError, Evaluation};
 pub use inspection::Inspection;
 
+use crate::types::actions::{Arbitrage, Liquidation, Trade, Transfer};
 use crate::{
     addresses::{DYDX, FILTER, ZEROX},
     is_subtrace,
@@ -16,7 +17,7 @@ use crate::{
     types::actions::SpecificAction,
 };
 use ethers::contract::EthLogDecode;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub mod actions;
 
@@ -214,6 +215,16 @@ pub struct Action {
     pub call: CallTraceAddress,
     /// The log indices of the logs used
     pub logs: Vec<U256>,
+    /// Additional protocols besides the call's protocol
+    pub protocols: Vec<Protocol>,
+}
+
+impl Deref for Action {
+    type Target = SpecificAction;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl Action {
@@ -222,7 +233,11 @@ impl Action {
     }
 
     pub fn with_logs(inner: SpecificAction, call: CallTraceAddress, logs: Vec<U256>) -> Self {
-        Self { inner, call, logs }
+        Self::with_logs_and_protocols(inner, call, logs, Vec::new())
+    }
+
+    pub fn with_logs_and_protocols(inner: SpecificAction, call: CallTraceAddress, logs: Vec<U256>, protocols: Vec<Protocol> ) -> Self {
+        Self { inner, call, logs, protocols }
     }
 }
 
@@ -259,8 +274,11 @@ pub struct TransactionData {
 
     /// log_index  -> Log
     logs: BTreeMap<U256, TransactionLog>,
+
     /// All internal calls sorted by trace
     calls: Vec<InternalCall>,
+
+    /// trace_address -> idx in `calls`
     calls_idx: HashMap<CallTraceAddress, usize>,
 
     /// calls and their logs (indices) identified by `call.to == log.adress `
@@ -270,6 +288,7 @@ pub struct TransactionData {
 }
 
 impl TransactionData {
+    /// Create a new instance based on the tx traces and logs
     pub fn create(
         traces: impl IntoIterator<Item = Trace>,
         logs: Vec<EventLog>,
@@ -398,6 +417,25 @@ impl TransactionData {
         Ok(inspection)
     }
 
+    /// All distinct protocols within this transaction
+    pub fn protocols(&self) -> HashSet<Protocol> {
+        let mut protos = HashSet::new();
+        if let Some(proto) = self.protocol {
+            protos.insert(proto);
+        }
+
+        protos.extend(self.calls.iter().filter_map(|call| call.protocol).chain(
+            self.actions()
+                .flat_map(|act|act.protocols.iter().cloned()),
+        ));
+
+        // this gets rid of the Erc20 protocol markers
+        protos.retain(|proto| *proto != Protocol::Erc20);
+
+        protos
+    }
+
+    /// Return the call with the matching trace address
     pub fn get_call(&self, trace_address: &CallTraceAddress) -> Option<&InternalCall> {
         self.calls_idx
             .get(trace_address)
@@ -452,8 +490,8 @@ impl TransactionData {
         self.logs().filter(move |c| c.log_index < index)
     }
 
-    /// All logs issued by the callee (`call.to`) if this call
-    pub fn logs_by_callee(
+    /// All logs issued by the callee (`call.to`)
+    pub fn all_logs_by_callee(
         &self,
         trace_address: &CallTraceAddress,
     ) -> impl Iterator<Item = &TransactionLog> {
@@ -463,6 +501,15 @@ impl TransactionData {
             .unwrap_or_default()
             .into_iter()
             .map(move |idx| &self.logs[&idx])
+    }
+
+    /// unassigned logs issued by the callee (`call.to`)
+    pub fn logs_by_callee(
+        &self,
+        trace_address: &CallTraceAddress,
+    ) -> impl Iterator<Item = &TransactionLog> {
+        self.all_logs_by_callee(trace_address)
+            .filter(|log| !log.is_assigned())
     }
 
     /// Returns an iterator over all logs that resulted due to this call
@@ -535,11 +582,14 @@ impl TransactionData {
                 .get_mut(log)
                 .and_then(|l| l.assign_to(action.call.clone()));
         }
+
+        // make sure that `actions` remains sorted by the action's assigned call's index
         let action_idx = self
             .calls_idx
             .get(&action.call)
             .cloned()
             .unwrap_or_default();
+
         let num_parents = self
             .actions
             .iter()
@@ -549,6 +599,7 @@ impl TransactionData {
                 action_idx >= probe_idx
             })
             .count();
+
         self.actions.insert(num_parents, action);
     }
 
@@ -560,8 +611,12 @@ impl TransactionData {
     }
 
     /// Iterator over all the actions identified for this tx sorted by the associated call
-    pub fn actions(&self) -> impl Iterator<Item = &Action> {
-        self.actions.iter()
+    pub fn actions(&self) -> ActionsIter {
+        ActionsIter {
+            iter: self.actions.iter(),
+            calls: &self.calls,
+            calls_idx: &self.calls_idx,
+        }
     }
 
     /// Iterator over all the actions identified for this tx sorted by the associated call
@@ -575,5 +630,88 @@ impl TransactionData {
 
     pub fn get_action_mut(&mut self, idx: usize) -> Option<&mut Action> {
         self.actions.get_mut(idx)
+    }
+
+    /// Removes all transfers that are already included in trades
+    ///
+    /// ERC20 may detect transfer event that are already caught by other protocol events
+    pub fn remove_duplicate_transfers(&mut self) {
+        let mut transfers = BTreeSet::new();
+        for action in self.actions() {
+            if let Some(trade) = action.as_trade() {
+                for (idx, act) in self.actions().enumerate() {
+                    if let Some(transfer) = act.as_transfer() {
+                        if (transfer == &trade.t1 || transfer == &trade.t2)
+                            && (action.call == act.call || is_subtrace(&action.call, &act.call))
+                        {
+                            transfers.insert(idx);
+                        }
+                    }
+                }
+            }
+        }
+        for idx in transfers.into_iter().rev() {
+            // remove transfers, starting with highest idx
+            self.remove_action(idx);
+        }
+    }
+}
+
+pub struct ActionsIter<'a> {
+    iter: std::slice::Iter<'a, Action>,
+    calls: &'a [InternalCall],
+    calls_idx: &'a HashMap<CallTraceAddress, usize>,
+}
+
+impl<'a> ActionsIter<'a> {
+    pub fn arbitrage(&self) -> impl Iterator<Item = &'a Arbitrage> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| action.inner.as_arbitrage())
+    }
+
+    pub fn liquidations(&self) -> impl Iterator<Item = &'a Liquidation> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| action.inner.as_liquidation())
+    }
+
+    pub fn transfers(&self) -> impl Iterator<Item = &'a Transfer> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| action.inner.as_transfer())
+    }
+
+    pub fn trades(&self) -> impl Iterator<Item = &'a Trade> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| action.inner.as_trade())
+    }
+
+    /// All distinct protocols of the actions sorted by their first appearance within the transaction
+    pub fn protocols(&self) -> impl Iterator<Item = Protocol> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| {
+                self.calls_idx
+                    .get(&action.call)
+                    .cloned()
+                    .and_then(|idx| self.calls[idx].protocol.map(|proto| (idx, proto)))
+            })
+            .collect::<BTreeMap<_, _>>()
+            .into_values()
+    }
+}
+
+impl<'a> Iterator for ActionsIter<'a> {
+    type Item = &'a Action;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
     }
 }
