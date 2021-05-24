@@ -17,7 +17,7 @@ async-trait = "0.1.50"
 serde = "1.0.126"
 
 # postgres connection
-tokio = { version = "1.5.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.6.0", features = ["macros", "rt-multi-thread"] }
 tokio-postgres = "0.7.2"
 rust_decimal = { version = "1.13.0", features = ["db-postgres", "db-tokio-postgres"] }
 gumdrop = "0.8.0"
