@@ -1,5 +1,5 @@
-#![allow(clippy::clippy::new_without_default)]
-#![allow(clippy::clippy::clippy::single_match)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::single_match)]
 //! MEV-INSPECT
 //!
 //! Utility for MEV Inspection

@@ -99,12 +99,12 @@ impl DefiProtocol for Balancer {
         Protocol::Balancer
     }
 
-    fn is_protocol(&self, call: &InternalCall) -> Result<Option<Protocol>, ()> {
+    fn is_protocol(&self, call: &InternalCall) -> Option<Option<Protocol>> {
         // TODO: Adjust for exchange proxy calls
         if call.to == *BALANCER_PROXY {
-            Ok(Some(Self::protocol()))
+            Some(Some(Self::protocol()))
         } else {
-            Ok(None)
+            Some(None)
         }
     }
 
@@ -214,21 +214,17 @@ impl Inspector for Balancer {
                     true,
                 );
 
-                match (t1, t2) {
-                    (Some((j, t1)), Some((k, t2))) => {
-                        if t1.from != t2.to || t2.from != t1.to {
-                            continue;
-                        }
-
-                        *action =
-                            Classification::new(Trade::new(t1.clone(), t2.clone()), Vec::new());
-                        prune.push(j);
-                        prune.push(k);
-
-                        inspection.protocols.insert(Protocol::Balancer);
+                if let (Some((j, t1)), Some((k, t2))) = (t1, t2) {
+                    if t1.from != t2.to || t2.from != t1.to {
+                        continue;
                     }
-                    _ => {}
-                };
+
+                    *action = Classification::new(Trade::new(t1.clone(), t2.clone()), Vec::new());
+                    prune.push(j);
+                    prune.push(k);
+
+                    inspection.protocols.insert(Protocol::Balancer);
+                }
             }
         }
 

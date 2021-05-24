@@ -46,11 +46,11 @@ impl DefiProtocol for Aave {
         Protocol::Aave
     }
 
-    fn is_protocol(&self, call: &InternalCall) -> Result<Option<Protocol>, ()> {
+    fn is_protocol(&self, call: &InternalCall) -> Option<Option<Protocol>> {
         if call.to == *AAVE_LENDING_POOL {
-            Ok(Some(Self::protocol()))
+            Some(Some(Self::protocol()))
         } else {
-            Err(())
+            None
         }
     }
 

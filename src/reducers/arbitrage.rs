@@ -84,13 +84,11 @@ impl TxReducer for ArbitrageReducer {
         let mut actions = trades.iter();
 
         while let Some((idx, _, trade)) = actions.next() {
-            if let Some((reverse_idx, _, reverse_trade)) = actions
-                .clone()
-                .filter(|(_, _, reverse)| {
+            if let Some((reverse_idx, _, reverse_trade)) =
+                actions.clone().find(|(_, _, reverse)| {
                     // find a reverse trade
                     reverse.t2.token == trade.t1.token
                 })
-                .next()
             {
                 if reverse_trade.t2.amount > trade.t1.amount {
                     let arbitrage = Arbitrage {

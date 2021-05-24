@@ -88,28 +88,28 @@ impl TxReducer for TradeReducer {
             })
         {
             // handle uniswap transfers/swaps differently, where we're only interested in continuous swaps
-            if call.protocol.map(|p| p.is_uniswap()).unwrap_or_default() {
-                if call.classification.is_swap() {
-                    // find the transfer prior to this call that forms a trade
-                    if let Some((i, t1)) = actions
-                        .iter()
-                        .rev()
-                        .skip(actions.len() - idx)
-                        .filter_map(|(i, a)| a.as_transfer().map(|t| (i, t)))
-                        .next()
-                    {
-                        // we make the previous transfer a trade and remove the current
-                        prune.remove(i);
-                        prune.insert(idx);
-                        trades.push((
-                            *i,
-                            Trade {
-                                t1: t1.clone(),
-                                t2: transfer.clone(),
-                            },
-                        ));
-                        continue;
-                    }
+            if call.protocol.map(|p| p.is_uniswap()).unwrap_or_default()
+                && call.classification.is_swap()
+            {
+                // find the transfer prior to this call that forms a trade
+                if let Some((i, t1)) = actions
+                    .iter()
+                    .rev()
+                    .skip(actions.len() - idx)
+                    .filter_map(|(i, a)| a.as_transfer().map(|t| (i, t)))
+                    .next()
+                {
+                    // we make the previous transfer a trade and remove the current
+                    prune.remove(i);
+                    prune.insert(idx);
+                    trades.push((
+                        *i,
+                        Trade {
+                            t1: t1.clone(),
+                            t2: transfer.clone(),
+                        },
+                    ));
+                    continue;
                 }
             }
 
@@ -144,7 +144,7 @@ impl TxReducer for TradeReducer {
                 ));
 
                 // If there is no follow-up transfer that uses `transfer2`, prune it:
-                if let Some((_, action)) = tx.actions().enumerate().skip(transfer2_idx + 1).next() {
+                if let Some((_, action)) = tx.actions().enumerate().nth(transfer2_idx + 1) {
                     if action
                         .as_transfer()
                         .filter(|t| t.to == transfer2.from && t.from == transfer2.to)

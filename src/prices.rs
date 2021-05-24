@@ -1,4 +1,4 @@
-#![allow(clippy::clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments)]
 use crate::addresses::{parse_address, ETH, WETH};
 use ethers::{
     contract::{abigen, ContractError},

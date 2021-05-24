@@ -75,13 +75,13 @@ impl DefiProtocol for Uniswap {
         UniPairEvents::decode_log(&log.raw_log).is_ok()
     }
 
-    fn is_protocol(&self, call: &InternalCall) -> Result<Option<Protocol>, ()> {
+    fn is_protocol(&self, call: &InternalCall) -> Option<Option<Protocol>> {
         if let Some(protocol) = PROTOCOLS.get(&call.to) {
-            Ok(Some(*protocol))
+            Some(Some(*protocol))
         } else if let Some(protocol) = PROTOCOLS.get(&call.from) {
-            Ok(Some(*protocol))
+            Some(Some(*protocol))
         } else {
-            Ok(None)
+            Some(None)
         }
     }
 
@@ -221,12 +221,10 @@ impl DefiProtocol for Uniswap {
             .router
             .decode::<AddLiquidity, _>("addLiquidity", &call.input)
             .is_ok()
-        {
-            Some((CallClassification::AddLiquidity, None))
-        } else if self
-            .router
-            .decode::<AddLiquidityEth, _>("addLiquidityETH", &call.input)
-            .is_ok()
+            || self
+                .router
+                .decode::<AddLiquidityEth, _>("addLiquidityETH", &call.input)
+                .is_ok()
         {
             Some((CallClassification::AddLiquidity, None))
         } else if let Ok((_, _, _, bytes)) = self.pair.decode::<PairSwap, _>("swap", &call.input) {

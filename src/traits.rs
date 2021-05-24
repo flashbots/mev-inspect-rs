@@ -35,11 +35,11 @@ pub trait DefiProtocol: Sized {
     /// Whether it can be determined that the address is in fact associated with the protocol.
     ///
     /// Since this is non deterministic, it will return
-    /// - Ok(Some(proto)) when the proto could be determined
-    /// - Ok(None) when it cannot be ruled out that this call is in fact associated with the protocol
-    /// - Err(()) when it can be ruled out
-    fn is_protocol(&self, _: &InternalCall) -> Result<Option<Protocol>, ()> {
-        Ok(None)
+    /// - Some(Some(proto)) when the proto could be determined
+    /// - Some(None) when it cannot be ruled out that this call is in fact associated with the protocol
+    /// - None when it can be ruled out
+    fn is_protocol(&self, _: &InternalCall) -> Option<Option<Protocol>> {
+        Some(None)
     }
 
     /// Checks whether this event belongs to the protocol
@@ -72,9 +72,9 @@ pub(crate) fn inspect_tx<T: DefiProtocol>(proto: &T, tx: &mut TransactionData) {
     let mut decode_again = Vec::new();
     for call in tx.calls_mut() {
         // if a protocol can not be identified by an address, inspect it regardless
-        if let Ok(p) = proto
+        if let Some(p) = proto
             .is_protocol(&call)
-            .map(|maybe_proto| maybe_proto.unwrap_or(T::protocol()))
+            .map(|maybe_proto| maybe_proto.unwrap_or_else(T::protocol))
         {
             if let Some((classification, action)) = proto.classify(call) {
                 call.protocol = Some(p);

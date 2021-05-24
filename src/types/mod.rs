@@ -87,13 +87,10 @@ pub enum Protocol {
 
 impl Protocol {
     pub fn is_uniswap(&self) -> bool {
-        match self {
-            Protocol::UniswapV1
-            | Protocol::UniswapV2
-            | Protocol::UniswapV3
-            | Protocol::Uniswappy => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Protocol::UniswapV1 | Protocol::UniswapV2 | Protocol::UniswapV3 | Protocol::Uniswappy
+        )
     }
 
     pub fn is_sake_swap(&self) -> bool {
@@ -303,24 +300,24 @@ impl TransactionData {
     pub fn create(
         traces: impl IntoIterator<Item = Trace>,
         logs: Vec<EventLog>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, (Vec<Trace>, Vec<EventLog>)> {
         let mut traces = traces.into_iter().peekable();
 
         // get the first trace
         let trace = match traces.peek() {
             Some(inner) => inner,
-            None => return Err(()),
+            None => return Err((traces.collect(), logs)),
         };
         let initial_call = match trace.action {
             TraceAction::Call(ref call) => call,
             // the first action we care about must be a call. everything else
             // is junk
-            _ => return Err(()),
+            _ => return Err((traces.collect(), logs)),
         };
 
         // Filter out unwanted calls
         if FILTER.get(&initial_call.to).is_some() {
-            return Err(());
+            return Err((traces.collect(), logs));
         }
 
         let mut status = Status::Success;
@@ -449,7 +446,7 @@ impl TransactionData {
     }
 
     /// Return the call with the matching trace address
-    pub fn get_call(&self, trace_address: &CallTraceAddress) -> Option<&InternalCall> {
+    pub fn get_call(&self, trace_address: &[usize]) -> Option<&InternalCall> {
         self.calls_idx
             .get(trace_address)
             .map(|idx| &self.calls[*idx])
@@ -532,7 +529,7 @@ impl TransactionData {
     /// All logs issued by the callee (`call.to`)
     pub fn all_logs_by_callee(
         &self,
-        trace_address: &CallTraceAddress,
+        trace_address: &[usize],
     ) -> impl Iterator<Item = &TransactionLog> {
         self.logs_by
             .get(trace_address)
@@ -543,10 +540,7 @@ impl TransactionData {
     }
 
     /// unassigned logs issued by the callee (`call.to`)
-    pub fn logs_by_callee(
-        &self,
-        trace_address: &CallTraceAddress,
-    ) -> impl Iterator<Item = &TransactionLog> {
+    pub fn logs_by_callee(&self, trace_address: &[usize]) -> impl Iterator<Item = &TransactionLog> {
         self.all_logs_by_callee(trace_address)
             .filter(|log| !log.is_assigned())
     }
@@ -556,7 +550,7 @@ impl TransactionData {
     /// TODO: this may return logs that happen later, this is due to sorting the logs by their address
     pub fn call_logs(
         &self,
-        trace_address: &CallTraceAddress,
+        trace_address: &[usize],
     ) -> impl Iterator<Item = (&InternalCall, &EventLog)> {
         let mut logs_by: BTreeMap<_, _> = self
             .logs_by_callee(trace_address)
@@ -589,7 +583,7 @@ impl TransactionData {
     /// Returns an iterator over all logs that resulted due to this call that could successfully be decoded
     pub fn call_logs_decoded<T: EthLogDecode>(
         &self,
-        trace_address: &CallTraceAddress,
+        trace_address: &[usize],
     ) -> impl Iterator<Item = (&InternalCall, &EventLog, T)> {
         self.call_logs(trace_address).filter_map(|(call, log)| {
             T::decode_log(&log.raw_log)
@@ -601,7 +595,7 @@ impl TransactionData {
     /// Iterate over all the call's subcalls
     pub fn subcalls<'a: 'b, 'b>(
         &'a self,
-        t1: &'b CallTraceAddress,
+        t1: &'b [usize],
     ) -> impl Iterator<Item = &'a InternalCall> + 'b {
         self.calls().filter(move |c| {
             let t2 = &c.trace_address;

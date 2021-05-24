@@ -83,6 +83,7 @@ impl DefiProtocol for ERC20 {
         None
     }
 
+    #[allow(clippy::if_same_then_else)]
     fn classify(
         &self,
         call: &InternalCall,
