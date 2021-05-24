@@ -247,6 +247,10 @@ impl Action {
             protocols,
         }
     }
+
+    pub fn into_inner(self) -> SpecificAction {
+        self.inner
+    }
 }
 
 /// To detect trades: all Internal calls

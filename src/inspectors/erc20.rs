@@ -50,7 +50,7 @@ impl DefiProtocol for ERC20 {
         ProtocolContracts::Single(&self.0)
     }
 
-    fn protocol() -> Protocol {
+    fn protocol(&self) -> Protocol {
         Protocol::Erc20
     }
 

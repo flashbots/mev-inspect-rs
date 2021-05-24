@@ -43,7 +43,7 @@ impl DefiProtocol for Curve {
         ProtocolContracts::Dual(&self.pool, &self.pool4)
     }
 
-    fn protocol() -> Protocol {
+    fn protocol(&self) -> Protocol {
         Protocol::Curve
     }
 

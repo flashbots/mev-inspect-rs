@@ -38,7 +38,7 @@ impl DefiProtocol for ZeroEx {
         ProtocolContracts::Dual(&self.exchange, &self.bridge)
     }
 
-    fn protocol() -> Protocol {
+    fn protocol(&self) -> Protocol {
         Protocol::ZeroEx
     }
 

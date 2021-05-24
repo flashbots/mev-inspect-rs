@@ -1,5 +1,5 @@
 use crate::{
-    types::{actions::SpecificAction, Inspection, Status},
+    types::{actions::SpecificAction, Status},
     HistoricalPrice,
 };
 
@@ -12,9 +12,10 @@ use std::collections::HashSet;
 
 use crate::mevdb::DbError;
 use crate::model::{FromSqlExt, SqlRowExt};
-use crate::types::Protocol;
+use crate::types::{Protocol, TransactionData};
 use ethers::types::Address;
 use std::fmt;
+use std::ops::Deref;
 use std::str::FromStr;
 use thiserror::Error;
 use tokio_postgres::Row;
@@ -48,7 +49,7 @@ impl FromStr for ActionType {
 #[derive(Clone, Debug)]
 pub struct Evaluation {
     /// The internal inspection which produced this evaluation
-    pub inspection: Inspection,
+    pub tx: TransactionData,
     /// The gas used in total by this transaction
     pub gas_used: U256,
     /// The gas price used in this transaction
@@ -59,9 +60,9 @@ pub struct Evaluation {
     pub profit: U256,
 }
 
-impl AsRef<Inspection> for Evaluation {
-    fn as_ref(&self) -> &Inspection {
-        &self.inspection
+impl AsRef<TransactionData> for Evaluation {
+    fn as_ref(&self) -> &TransactionData {
+        &self.tx
     }
 }
 
@@ -69,7 +70,7 @@ impl Evaluation {
     /// Takes an inspection and reduces it to the data format which will be pushed
     /// to the database.
     pub async fn new<T: Middleware>(
-        inspection: Inspection,
+        tx: TransactionData,
         prices: &HistoricalPrice<T>,
         gas_used: U256,
         gas_price: U256,
@@ -83,17 +84,10 @@ impl Evaluation {
         // then probably this is an Arbitrage?
         let mut actions = HashSet::new();
         let mut profit = U256::zero();
-        for action in &inspection.actions {
-            // only get the known actions
-            let action = if let Some(action) = action.as_action() {
-                action
-            } else {
-                continue;
-            };
-
+        for action in tx.actions() {
             // set their action type
             use SpecificAction::*;
-            match action {
+            match action.deref() {
                 Arbitrage(_) => {
                     actions.insert(ActionType::Arbitrage);
                 }
@@ -107,15 +101,15 @@ impl Evaluation {
             };
 
             // dont try to calculate & normalize profits for unsuccessful txs
-            if inspection.status != Status::Success {
+            if tx.status != Status::Success {
                 continue;
             }
 
-            match action {
+            match action.deref() {
                 SpecificAction::Arbitrage(arb) => {
                     if arb.profit > 0.into() {
                         profit += prices
-                            .quote(arb.token, arb.profit, inspection.block_number)
+                            .quote(arb.token, arb.profit, tx.block_number)
                             .await
                             .map_err(EvalError::Contract)?;
                     }
@@ -124,17 +118,13 @@ impl Evaluation {
                     if liq.sent_amount == U256::MAX {
                         eprintln!(
                             "U256::max detected in {}, skipping profit calculation",
-                            inspection.hash
+                            tx.hash
                         );
                         continue;
                     }
                     let res = futures::future::join(
-                        prices.quote(liq.sent_token, liq.sent_amount, inspection.block_number),
-                        prices.quote(
-                            liq.received_token,
-                            liq.received_amount,
-                            inspection.block_number,
-                        ),
+                        prices.quote(liq.sent_token, liq.sent_amount, tx.block_number),
+                        prices.quote(liq.received_token, liq.received_amount, tx.block_number),
                     )
                     .await;
 
@@ -158,7 +148,7 @@ impl Evaluation {
                 }
                 SpecificAction::ProfitableLiquidation(liq) => {
                     profit += prices
-                        .quote(liq.token, liq.profit, inspection.block_number)
+                        .quote(liq.token, liq.profit, tx.block_number)
                         .await
                         .map_err(EvalError::Contract)?;
                 }
@@ -167,7 +157,7 @@ impl Evaluation {
         }
 
         Ok(Evaluation {
-            inspection,
+            tx: tx,
             gas_used,
             gas_price,
             actions,
@@ -221,25 +211,27 @@ impl SqlRowExt for Evaluation {
             None
         };
 
-        Ok(Self {
-            inspection: Inspection {
-                status,
-                actions: Vec::new(),
-                protocols,
-                from,
-                contract,
-                proxy_impl,
-                hash,
-                block_number,
-                transaction_position,
-                internal_calls: Vec::new(),
-                logs: Vec::new(),
-            },
-            gas_used,
-            gas_price,
-            actions,
-            profit: revenue,
-        })
+        todo!("unimplemented")
+
+        // Ok(Self {
+        //     tx: Inspection {
+        //         status,
+        //         actions: Vec::new(),
+        //         protocols,
+        //         from,
+        //         contract,
+        //         proxy_impl,
+        //         hash,
+        //         block_number,
+        //         transaction_position,
+        //         internal_calls: Vec::new(),
+        //         logs: Vec::new(),
+        //     },
+        //     gas_used,
+        //     gas_price,
+        //     actions,
+        //     profit: revenue,
+        // })
     }
 }
 

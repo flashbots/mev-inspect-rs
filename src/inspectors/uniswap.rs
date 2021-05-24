@@ -67,7 +67,7 @@ impl DefiProtocol for Uniswap {
         ProtocolContracts::Dual(&self.pair, &self.router)
     }
 
-    fn protocol() -> Protocol {
+    fn protocol(&self) -> Protocol {
         Protocol::Uniswappy
     }
 
@@ -142,7 +142,7 @@ impl DefiProtocol for Uniswap {
             }
             CallClassification::Swap => {
                 let protocol = uniswappy(&call.to, &call.from);
-                let protos = if protocol != Self::protocol() {
+                let protos = if protocol != self.protocol() {
                     vec![protocol]
                 } else {
                     Vec::new()

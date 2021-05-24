@@ -244,22 +244,22 @@ impl MevDB {
                 )
                 .as_str(),
                 &[
-                    &format!("{:?}", evaluation.inspection.hash),
-                    &format!("{:?}", evaluation.inspection.status),
-                    &Decimal::from(evaluation.inspection.block_number),
+                    &format!("{:?}", evaluation.tx.hash),
+                    &format!("{:?}", evaluation.tx.status),
+                    &Decimal::from(evaluation.tx.block_number),
                     &u256_decimal(evaluation.gas_price)?,
                     &u256_decimal(evaluation.gas_used)?,
                     &u256_decimal(evaluation.profit)?,
-                    &vec_str(&evaluation.inspection.protocols),
+                    &vec_str(&evaluation.tx.protocols()),
                     &vec_str(&evaluation.actions),
-                    &format!("{:?}", evaluation.inspection.from),
-                    &format!("{:?}", evaluation.inspection.contract),
+                    &format!("{:?}", evaluation.tx.from),
+                    &format!("{:?}", evaluation.tx.contract),
                     &evaluation
-                        .inspection
+                        .tx
                         .proxy_impl
                         .map(|x| format!("{:?}", x))
                         .unwrap_or_else(|| "".to_owned()),
-                    &Decimal::from(evaluation.inspection.transaction_position),
+                    &Decimal::from(evaluation.tx.transaction_position),
                 ],
             )
             .await?;
@@ -418,8 +418,8 @@ impl<'a, M: Middleware + Unpin> Stream for BatchInserts<'a, M> {
                     Poll::Ready(Some(Ok(eval))) => {
                         log::trace!(
                             "received new evaluation of block {} with tx {}; waiting evaluations: {}",
-                            eval.inspection.block_number,
-                            eval.inspection.hash,
+                            eval.tx.block_number,
+                            eval.tx.hash,
                             this.insertion_queue.len() + 1
                         );
                         this.insertion_queue.push_back(eval);
@@ -461,8 +461,8 @@ async fn insert_evaluation(
     } else {
         log::debug!(
             "inserted evaluation of block {} with tx {}",
-            eval.inspection.block_number,
-            eval.inspection.hash
+            eval.tx.block_number,
+            eval.tx.hash
         );
         Ok((eval, db))
     }
@@ -524,7 +524,7 @@ mod tests {
             .cloned()
             .collect::<HashSet<_>>();
         let evaluation = Evaluation {
-            inspection,
+            tx: inspection,
             gas_used: 21000.into(),
             gas_price: (100e9 as u64).into(),
             actions,

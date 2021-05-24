@@ -42,13 +42,13 @@ impl DefiProtocol for Aave {
         ProtocolContracts::Single(&self.pool)
     }
 
-    fn protocol() -> Protocol {
+    fn protocol(&self) -> Protocol {
         Protocol::Aave
     }
 
     fn is_protocol(&self, call: &InternalCall) -> Option<Option<Protocol>> {
         if call.to == *AAVE_LENDING_POOL {
-            Some(Some(Self::protocol()))
+            Some(Some(self.protocol()))
         } else {
             None
         }

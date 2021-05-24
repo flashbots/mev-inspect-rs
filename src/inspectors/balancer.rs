@@ -95,14 +95,14 @@ impl DefiProtocol for Balancer {
         ProtocolContracts::Dual(&self.bpool, &self.bproxy)
     }
 
-    fn protocol() -> Protocol {
+    fn protocol(&self) -> Protocol {
         Protocol::Balancer
     }
 
     fn is_protocol(&self, call: &InternalCall) -> Option<Option<Protocol>> {
         // TODO: Adjust for exchange proxy calls
         if call.to == *BALANCER_PROXY {
-            Some(Some(Self::protocol()))
+            Some(Some(self.protocol()))
         } else {
             Some(None)
         }

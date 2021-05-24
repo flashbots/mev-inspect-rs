@@ -18,24 +18,21 @@ use thiserror::Error;
 use crate::mevdb::BatchInserts;
 use crate::model::EventLog;
 use crate::types::{EvalError, Evaluation, TransactionData};
-use crate::{
-    types::inspection::{Inspection, TraceWrapper},
-    HistoricalPrice, Inspector, MevDB, Reducer,
-};
+use crate::{DefiProtocol, HistoricalPrice, MevDB, TxReducer};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
 /// Classifies traces according to the provided inspectors
 pub struct BatchInspector {
-    inspectors: Vec<Box<dyn Inspector + Send + Sync>>,
-    reducers: Vec<Box<dyn Reducer + Send + Sync>>,
+    inspectors: Vec<Box<dyn DefiProtocol + Send + Sync>>,
+    reducers: Vec<Box<dyn TxReducer + Send + Sync>>,
 }
 
 impl BatchInspector {
     /// Constructor
     pub fn new(
-        inspectors: Vec<Box<dyn Inspector + Send + Sync>>,
-        reducers: Vec<Box<dyn Reducer + Send + Sync>>,
+        inspectors: Vec<Box<dyn DefiProtocol + Send + Sync>>,
+        reducers: Vec<Box<dyn TxReducer + Send + Sync>>,
     ) -> Self {
         Self {
             inspectors,
@@ -43,46 +40,59 @@ impl BatchInspector {
         }
     }
 
-    /// Given a trace iterator, it groups all traces for the same tx hash
-    /// and then inspects them and all of their subtraces
-    pub fn inspect_many(&self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
-        // group traces in a block by tx hash
-        let traces = traces.into_iter().group_by(|t| t.transaction_hash);
-
-        // inspects everything
-        traces
-            .into_iter()
-            // Convert the traces to inspections
-            .filter_map(|(_, traces)| self.inspect_one(traces))
-            .collect::<Vec<_>>()
-    }
-
-    pub fn inspect_one<T>(&self, traces: T) -> Option<Inspection>
-    where
-        T: IntoIterator<Item = Trace>,
-    {
-        let mut res = None;
-        if let Ok(mut i) = Inspection::try_from(TraceWrapper(traces)) {
-            if !i.actions.is_empty() {
-                self.inspect(&mut i);
-                self.reduce(&mut i);
-                i.prune();
-                res = Some(i);
-            }
-        }
-        res
-    }
+    // /// Given a trace iterator, it groups all traces for the same tx hash
+    // /// and then inspects them and all of their subtraces
+    // pub fn inspect_many(&self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
+    //     // group traces in a block by tx hash
+    //     let traces = traces.into_iter().group_by(|t| t.transaction_hash);
+    //
+    //     // inspects everything
+    //     traces
+    //         .into_iter()
+    //         // Convert the traces to inspections
+    //         .filter_map(|(_, traces)| self.inspect_one(traces))
+    //         .collect::<Vec<_>>()
+    // }
+    //
+    // pub fn inspect_one<T>(&self, traces: T) -> Option<Inspection>
+    // where
+    //     T: IntoIterator<Item = Trace>,
+    // {
+    //     let mut res = None;
+    //     if let Ok(mut i) = Inspection::try_from(TraceWrapper(traces)) {
+    //         if !i.actions.is_empty() {
+    //             self.inspect(&mut i);
+    //             self.reduce(&mut i);
+    //             i.prune();
+    //             res = Some(i);
+    //         }
+    //     }
+    //     res
+    // }
+    //
+    // /// Decodes the inspection's actions
+    // pub fn inspect(&self, inspection: &mut Inspection) {
+    //     for inspector in self.inspectors.iter() {
+    //         inspector.inspect(inspection);
+    //     }
+    // }
+    //
+    // pub fn reduce(&self, inspection: &mut Inspection) {
+    //     for reducer in self.reducers.iter() {
+    //         reducer.reduce(inspection);
+    //     }
+    // }
 
     /// Decodes the inspection's actions
-    pub fn inspect(&self, inspection: &mut Inspection) {
+    pub fn inspect_tx(&self, tx: &mut TransactionData) {
         for inspector in self.inspectors.iter() {
-            inspector.inspect(inspection);
+            inspector.inspect_tx(tx);
         }
     }
 
-    pub fn reduce(&self, inspection: &mut Inspection) {
+    pub fn reduce_tx(&self, tx: &mut TransactionData) {
         for reducer in self.reducers.iter() {
-            reducer.reduce(inspection);
+            reducer.reduce_tx(tx);
         }
     }
 
@@ -180,8 +190,8 @@ pub struct BatchEvaluator<M: Middleware + 'static> {
     block_infos: BlockStream<M>,
     /// Evaluations that currently ongoing
     evaluations_queue: FuturesUnordered<EvaluationResult<M>>,
-    /// `(Inspection, gas_used, gas_price)` waiting to be evaluated
-    waiting_inspections: VecDeque<(Inspection, U256, U256)>,
+    /// `(TransactionData, gas_used, gas_price)` waiting to be evaluated
+    waiting_inspections: VecDeque<(TransactionData, U256, U256)>,
     /// maximum allowed buffered futures
     max: usize,
     /// whether all block requests are done
@@ -220,12 +230,12 @@ impl<M: Middleware + Unpin + 'static> BatchEvaluator<M> {
         BatchInserts::new(mev_db, self)
     }
 
-    fn queue_in_evaluation(&mut self, inspection: Inspection, gas_used: U256, gas_price: U256) {
-        let block_number = inspection.block_number;
-        let hash = inspection.hash;
+    fn queue_in_evaluation(&mut self, tx: TransactionData, gas_used: U256, gas_price: U256) {
+        let block_number = tx.block_number;
+        let hash = tx.hash;
         let prices = Arc::clone(&self.prices);
         let eval = Box::pin(async move {
-            Evaluation::new(inspection, prices.as_ref(), gas_used, gas_price)
+            Evaluation::new(tx, prices.as_ref(), gas_used, gas_price)
                 .map_err(move |error| BatchEvaluationError::Evaluation {
                     block_number,
                     hash,
@@ -283,7 +293,7 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                         })
                         .collect::<HashMap<TxHash, U256>>();
 
-                    for _tx_data in traces
+                    for mut tx in traces
                         .clone()
                         .into_iter()
                         .group_by(|t| t.transaction_hash.expect("tx hash exists"))
@@ -292,26 +302,40 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                             let tx_logs = all_tx_logs.remove(&tx).unwrap_or_default();
                             TransactionData::create(tx_traces, tx_logs).ok()
                         })
-                    {}
+                    {
+                        this.inspector.inspect_tx(&mut tx);
+                        this.inspector.reduce_tx(&mut tx);
 
-                    for inspection in this.inspector.inspect_many(traces) {
-                        let gas_used = gas_used_txs
-                            .get(&inspection.hash)
-                            .cloned()
-                            .unwrap_or_default();
+                        let gas_used = gas_used_txs.get(&tx.hash).cloned().unwrap_or_default();
 
-                        let gas_price = gas_price_txs
-                            .get(&inspection.hash)
-                            .cloned()
-                            .unwrap_or_default();
+                        let gas_price = gas_price_txs.get(&tx.hash).cloned().unwrap_or_default();
 
                         if this.evaluations_queue.len() < this.max {
-                            this.queue_in_evaluation(inspection, gas_used, gas_price)
+                            this.queue_in_evaluation(tx, gas_used, gas_price)
                         } else {
                             this.waiting_inspections
-                                .push_back((inspection, gas_used, gas_price));
+                                .push_back((tx, gas_used, gas_price));
                         }
                     }
+
+                    // for inspection in this.inspector.inspect_many(traces) {
+                    //     let gas_used = gas_used_txs
+                    //         .get(&inspection.hash)
+                    //         .cloned()
+                    //         .unwrap_or_default();
+                    //
+                    //     let gas_price = gas_price_txs
+                    //         .get(&inspection.hash)
+                    //         .cloned()
+                    //         .unwrap_or_default();
+                    //
+                    //     if this.evaluations_queue.len() < this.max {
+                    //         this.queue_in_evaluation(inspection, gas_used, gas_price)
+                    //     } else {
+                    //         this.waiting_inspections
+                    //             .push_back((inspection, gas_used, gas_price));
+                    //     }
+                    // }
                 }
                 Poll::Ready(Some(Err(err))) => {
                     return {

@@ -25,12 +25,12 @@ pub trait Inspector: core::fmt::Debug {
 }
 
 /// Trait for a general defi protocol
-pub trait DefiProtocol: Sized {
+pub trait DefiProtocol {
     /// Returns all the known contracts for the protocol
     fn base_contracts(&self) -> ProtocolContracts;
 
     /// The general protocol identifier
-    fn protocol() -> Protocol;
+    fn protocol(&self) -> Protocol;
 
     /// Whether it can be determined that the address is in fact associated with the protocol.
     ///
@@ -66,7 +66,7 @@ pub trait DefiProtocol: Sized {
     }
 }
 
-pub(crate) fn inspect_tx<T: DefiProtocol>(proto: &T, tx: &mut TransactionData) {
+pub(crate) fn inspect_tx<T: DefiProtocol + ?Sized>(proto: &T, tx: &mut TransactionData) {
     // iterate over all calls that are not processed yet
     let mut actions = Vec::new();
     let mut decode_again = Vec::new();
@@ -74,7 +74,7 @@ pub(crate) fn inspect_tx<T: DefiProtocol>(proto: &T, tx: &mut TransactionData) {
         // if a protocol can not be identified by an address, inspect it regardless
         if let Some(p) = proto
             .is_protocol(&call)
-            .map(|maybe_proto| maybe_proto.unwrap_or_else(T::protocol))
+            .map(|maybe_proto| maybe_proto.unwrap_or_else(|| proto.protocol()))
         {
             if let Some((classification, action)) = proto.classify(call) {
                 call.protocol = Some(p);

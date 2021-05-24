@@ -1,19 +1,21 @@
 use mev_inspect::{
     inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20},
+    model::EventLog,
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
-    BatchInserts, BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
+    BatchInserts, BatchInspector, CachedProvider, DefiProtocol, HistoricalPrice, MevDB, TxReducer,
 };
 
 use ethers::{
     providers::{Middleware, Provider, StreamExt},
-    types::{BlockNumber, TxHash, U256},
+    types::TxHash,
 };
 
+use ethers::types::Filter;
 use futures::SinkExt;
 use gumdrop::Options;
-use std::io::Write;
-use std::{collections::HashMap, convert::TryFrom, path::PathBuf, sync::Arc};
+use mev_inspect::types::TransactionData;
+use std::{convert::TryFrom, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Options, Clone)]
 struct Opts {
@@ -96,10 +98,8 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
 
     let compound = Compound::create(provider.clone()).await?;
     let curve = Curve::create(provider.clone()).await?;
-    let inspectors: Vec<Box<dyn Inspector + Send + Sync>> = vec![
-        // Classify Transfers
+    let inspectors: Vec<Box<dyn DefiProtocol + Send + Sync>> = vec![
         Box::new(ZeroEx::default()),
-        Box::new(ERC20::new()),
         // Classify AMMs
         Box::new(Balancer::default()),
         Box::new(Uniswap::default()),
@@ -107,9 +107,11 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
         // Classify Liquidations
         Box::new(Aave::new()),
         Box::new(compound),
+        // Classify Transfers
+        Box::new(ERC20::new()),
     ];
 
-    let reducers: Vec<Box<dyn Reducer + Send + Sync>> = vec![
+    let reducers: Vec<Box<dyn TxReducer + Send + Sync>> = vec![
         Box::new(LiquidationReducer),
         Box::new(TradeReducer),
         Box::new(ArbitrageReducer),
@@ -117,7 +119,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
     let processor = BatchInspector::new(inspectors, reducers);
 
     // TODO: Pass overwrite parameter
-    let mut db = MevDB::connect(opts.db_cfg, &opts.db_table).await?;
+    let db = MevDB::connect(opts.db_cfg, &opts.db_table).await?;
     db.create().await?;
     if opts.reset {
         db.clear().await?;
@@ -129,32 +131,44 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
         match cmd {
             Command::Tx(opts) => {
                 let traces = provider.trace_transaction(opts.tx).await?;
-                if let Some(inspection) = processor.inspect_one(traces) {
-                    let gas_used = provider
-                        .get_transaction_receipt(inspection.hash)
-                        .await?
-                        .expect("tx not found")
-                        .gas_used
-                        .unwrap_or_default();
-
-                    let gas_price = provider
-                        .get_transaction(inspection.hash)
-                        .await?
-                        .expect("tx not found")
-                        .gas_price;
-
-                    let evaluation =
-                        Evaluation::new(inspection, &prices, gas_used, gas_price).await?;
-                    println!("Found: {:?}", evaluation.as_ref().hash);
-                    println!("Revenue: {:?} WEI", evaluation.profit);
-                    println!("Cost: {:?} WEI", evaluation.gas_used * evaluation.gas_price);
-                    println!("Actions: {:?}", evaluation.actions);
-                    println!("Protocols: {:?}", evaluation.inspection.protocols);
-                    println!("Status: {:?}", evaluation.inspection.status);
-                    db.insert(&evaluation).await?;
-                } else {
-                    eprintln!("No actions found for tx {:?}", opts.tx);
+                if traces.is_empty() {
+                    return Ok(());
                 }
+
+                let block = traces[0].block_number;
+                let logs: Vec<_> = provider
+                    .get_logs(&Filter::new().from_block(block).to_block(block))
+                    .await?
+                    .into_iter()
+                    .filter(|log| log.transaction_hash == Some(opts.tx))
+                    .filter_map(|log| EventLog::try_from(log).ok())
+                    .collect();
+
+                let mut tx = TransactionData::create(traces, logs)
+                    .expect(&format!("Failed to create tx {:?}", opts.tx));
+
+                processor.inspect_tx(&mut tx);
+                processor.reduce_tx(&mut tx);
+                let gas_used = provider
+                    .get_transaction_receipt(tx.hash)
+                    .await?
+                    .expect("tx not found")
+                    .gas_used
+                    .unwrap_or_default();
+                let gas_price = provider
+                    .get_transaction(tx.hash)
+                    .await?
+                    .expect("tx not found")
+                    .gas_price;
+
+                let evaluation = Evaluation::new(tx, &prices, gas_used, gas_price).await?;
+                println!("Found: {:?}", evaluation.as_ref().hash);
+                println!("Revenue: {:?} WEI", evaluation.profit);
+                println!("Cost: {:?} WEI", evaluation.gas_used * evaluation.gas_price);
+                println!("Actions: {:?}", evaluation.actions);
+                println!("Protocols: {:?}", evaluation.tx.protocols());
+                println!("Status: {:?}", evaluation.tx.status);
+                db.insert(&evaluation).await?;
             }
             Command::Blocks(inner) => {
                 log::debug!("command blocks {:?}", inner);
@@ -228,8 +242,8 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                             insert_ctn += 1;
                             log::info!(
                                 "Inserted tx 0x{} in block {}",
-                                eval.inspection.hash,
-                                eval.inspection.block_number,
+                                eval.tx.hash,
+                                eval.tx.block_number,
                             );
                         }
                         Err(err) => {
@@ -245,95 +259,42 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
             }
         };
     } else {
+        let provider = Arc::new(provider);
+        let processor = Arc::new(processor);
+        let prices = Arc::new(prices);
+
         let mut watcher = provider.watch_blocks().await?;
+
         while watcher.next().await.is_some() {
-            let block = provider.get_block_number().await?;
-            let stdout = std::io::stdout();
-            let mut lock = stdout.lock();
-            writeln!(lock, "Got block: {}", block.as_u64())?;
-            process_block(
-                &mut lock,
-                block.as_u64(),
-                &provider,
-                &processor,
-                &mut db,
-                &prices,
-            )
-            .await?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn process_block<M: Middleware + 'static>(
-    lock: &mut std::io::StdoutLock<'_>,
-    block_number: u64,
-    provider: &M,
-    processor: &BatchInspector,
-    db: &mut MevDB,
-    prices: &HistoricalPrice<M>,
-) -> anyhow::Result<()> {
-    let block_number = block_number.into();
-
-    // get all the traces
-    let traces = provider
-        .trace_block(BlockNumber::Number(block_number))
-        .await?;
-    // get all the block txs
-    let block = provider
-        .get_block_with_txs(block_number)
-        .await?
-        .expect("block should exist");
-    let gas_price_txs = block
-        .transactions
-        .iter()
-        .map(|tx| (tx.hash, tx.gas_price))
-        .collect::<HashMap<TxHash, U256>>();
-
-    // get all the receipts
-    let receipts = provider.parity_block_receipts(block_number).await?;
-    let gas_used_txs = receipts
-        .into_iter()
-        .map(|receipt| {
-            (
-                receipt.transaction_hash,
-                receipt.gas_used.unwrap_or_default(),
-            )
-        })
-        .collect::<HashMap<TxHash, U256>>();
-
-    let inspections = processor.inspect_many(traces);
-
-    let t1 = std::time::Instant::now();
-
-    let eval_futs = inspections.into_iter().map(|inspection| {
-        let gas_used = gas_used_txs
-            .get(&inspection.hash)
-            .cloned()
-            .unwrap_or_default();
-        let gas_price = gas_price_txs
-            .get(&inspection.hash)
-            .cloned()
-            .unwrap_or_default();
-        Evaluation::new(inspection, &prices, gas_used, gas_price)
-    });
-    for evaluation in futures::future::join_all(eval_futs).await {
-        match evaluation {
-            Ok(evaluation) => {
-                db.insert(&evaluation).await?;
-            }
-            Err(err) => {
-                eprintln!("{:?}", err);
+            let block = provider.get_block_number().await?.as_u64();
+            println!("Got block: {}", block);
+            let processor = Arc::clone(&processor);
+            let mut eval_stream = processor.evaluate_blocks(
+                Arc::clone(&provider),
+                Arc::clone(&prices),
+                block..block + 1,
+                10,
+            );
+            while let Some(res) = eval_stream.next().await {
+                match res {
+                    Ok(eval) => {
+                        if let Err(err) = db.insert(&eval).await {
+                            log::error!("failed to insert: {:?}", err)
+                        } else {
+                            log::info!(
+                                "Inserted tx 0x{} in block {}",
+                                eval.tx.hash,
+                                eval.tx.block_number,
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("failed to insert: {:?}", err)
+                    }
+                }
             }
         }
     }
 
-    writeln!(
-        lock,
-        "Processed {:?} in {:?}",
-        block_number,
-        std::time::Instant::now().duration_since(t1)
-    )?;
     Ok(())
 }

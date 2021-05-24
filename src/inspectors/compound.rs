@@ -57,7 +57,7 @@ impl DefiProtocol for Compound {
         ])
     }
 
-    fn protocol() -> Protocol {
+    fn protocol(&self) -> Protocol {
         Protocol::Compound
     }
 
