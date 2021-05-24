@@ -2,7 +2,6 @@ use crate::model::{CallClassification, EventLog, InternalCall};
 use crate::types::actions::SpecificAction;
 use crate::types::{Action, Inspection, Protocol, TransactionData};
 use ethers::prelude::BaseContract;
-use ethers::types::Address;
 use std::borrow::Cow;
 
 pub trait Reducer {
@@ -25,19 +24,22 @@ pub trait Inspector: core::fmt::Debug {
     fn inspect(&self, inspection: &mut Inspection);
 }
 
-/// Trait for a general protocol
-///
-/// TODO use classify(call) to indicate what kind of analytics should be executed on `tx`
-pub trait DefiProtocol {
+/// Trait for a general defi protocol
+pub trait DefiProtocol: Sized {
     /// Returns all the known contracts for the protocol
     fn base_contracts(&self) -> ProtocolContracts;
 
-    /// The identifier
+    /// The general protocol identifier
     fn protocol() -> Protocol;
 
-    /// Whether it can be determined that the address is in fact a associated with the protocol
-    fn is_protocol(&self, _: &Address) -> Option<bool> {
-        None
+    /// Whether it can be determined that the address is in fact associated with the protocol.
+    ///
+    /// Since this is non deterministic, it will return
+    /// - Ok(Some(proto)) when the proto could be determined
+    /// - Ok(None) when it cannot be ruled out that this call is in fact associated with the protocol
+    /// - Err(()) when it can be ruled out
+    fn is_protocol(&self, _: &InternalCall) -> Result<Option<Protocol>, ()> {
+        Ok(None)
     }
 
     /// Checks whether this event belongs to the protocol
@@ -60,37 +62,42 @@ pub trait DefiProtocol {
     /// This will first `classify` each call, if no action was derived from the standalone call,
     /// the action will be tried to be decoded with `decode_call_action`
     fn inspect_tx(&self, tx: &mut TransactionData) {
-        // iterate over all calls that are not processed yet
-        let mut actions = Vec::new();
-        let mut decode_again = Vec::new();
-        for call in tx.calls_mut() {
-            // if a protocol can not be identified by an address, inspect it regardless
-            if self.is_protocol(&call.to).unwrap_or(true) {
-                if let Some((classification, action)) = self.classify(call) {
-                    call.protocol = Some(Self::protocol());
-                    // mark this call
-                    call.classification = classification;
+        inspect_tx(self, tx)
+    }
+}
 
-                    if let Some(action) = action {
-                        actions.push(Action::new(action, call.trace_address.clone()));
-                    } else {
-                        decode_again.push(call.trace_address.clone());
-                    }
+pub(crate) fn inspect_tx<T: DefiProtocol>(proto: &T, tx: &mut TransactionData) {
+    // iterate over all calls that are not processed yet
+    let mut actions = Vec::new();
+    let mut decode_again = Vec::new();
+    for call in tx.calls_mut() {
+        // if a protocol can not be identified by an address, inspect it regardless
+        if let Ok(p) = proto
+            .is_protocol(&call)
+            .map(|maybe_proto| maybe_proto.unwrap_or(T::protocol()))
+        {
+            if let Some((classification, action)) = proto.classify(call) {
+                call.protocol = Some(p);
+                // mark this call
+                call.classification = classification;
+
+                if let Some(action) = action {
+                    actions.push(Action::new(action, call.trace_address.clone()));
+                } else {
+                    decode_again.push(call.trace_address.clone());
                 }
             }
         }
+    }
 
-        tx.extend_actions(actions.into_iter());
+    tx.extend_actions(actions.into_iter());
 
-        for call in decode_again {
-            if let Some(call) = tx.get_call(&call) {
-                if let Some(action) = self.decode_call_action(call, tx) {
-                    tx.push_action(action)
-                }
+    for call in decode_again {
+        if let Some(call) = tx.get_call(&call) {
+            if let Some(action) = proto.decode_call_action(call, tx) {
+                tx.push_action(action)
             }
         }
-
-        tx.remove_duplicate_transfers();
     }
 }
 

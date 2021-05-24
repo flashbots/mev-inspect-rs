@@ -17,6 +17,7 @@ use crate::{
     types::actions::SpecificAction,
 };
 use ethers::contract::EthLogDecode;
+use itertools::Itertools;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub mod actions;
@@ -236,8 +237,18 @@ impl Action {
         Self::with_logs_and_protocols(inner, call, logs, Vec::new())
     }
 
-    pub fn with_logs_and_protocols(inner: SpecificAction, call: CallTraceAddress, logs: Vec<U256>, protocols: Vec<Protocol> ) -> Self {
-        Self { inner, call, logs, protocols }
+    pub fn with_logs_and_protocols(
+        inner: SpecificAction,
+        call: CallTraceAddress,
+        logs: Vec<U256>,
+        protocols: Vec<Protocol>,
+    ) -> Self {
+        Self {
+            inner,
+            call,
+            logs,
+            protocols,
+        }
     }
 }
 
@@ -424,10 +435,12 @@ impl TransactionData {
             protos.insert(proto);
         }
 
-        protos.extend(self.calls.iter().filter_map(|call| call.protocol).chain(
-            self.actions()
-                .flat_map(|act|act.protocols.iter().cloned()),
-        ));
+        protos.extend(
+            self.calls
+                .iter()
+                .filter_map(|call| call.protocol)
+                .chain(self.actions().flat_map(|act| act.protocols.iter().cloned())),
+        );
 
         // this gets rid of the Erc20 protocol markers
         protos.retain(|proto| *proto != Protocol::Erc20);
@@ -479,15 +492,41 @@ impl TransactionData {
     }
 
     /// All unassigned logs that occurred after the log
-    pub fn logs_after(&self, log_index: impl AsRef<U256>) -> impl Iterator<Item = &TransactionLog> {
-        let index = *log_index.as_ref();
+    pub fn logs_after(&self, log_index: impl Into<U256>) -> impl Iterator<Item = &TransactionLog> {
+        let index = log_index.into();
         self.logs().filter(move |c| c.log_index > index)
     }
 
     /// All unassigned logs prior to log
-    pub fn logs_prior(&self, log_index: impl AsRef<U256>) -> impl Iterator<Item = &TransactionLog> {
-        let index = *log_index.as_ref();
-        self.logs().filter(move |c| c.log_index < index)
+    pub fn logs_prior_decoded<T: EthLogDecode>(
+        &self,
+        log_index: U256,
+    ) -> impl Iterator<Item = (&EventLog, T)> {
+        self.logs_prior(log_index).filter_map(|log| {
+            T::decode_log(&log.raw_log)
+                .map(|decoded| (&log.inner, decoded))
+                .ok()
+        })
+    }
+
+    /// All unassigned logs that occurred after the log
+    pub fn logs_after_decoded<T: EthLogDecode>(
+        &self,
+        log_index: U256,
+    ) -> impl Iterator<Item = (&EventLog, T)> {
+        self.logs_after(log_index).filter_map(|log| {
+            T::decode_log(&log.raw_log)
+                .map(|decoded| (&log.inner, decoded))
+                .ok()
+        })
+    }
+
+    /// All unassigned logs prior to log starting with the closest log
+    pub fn logs_prior(&self, log_index: impl Into<U256>) -> impl Iterator<Item = &TransactionLog> {
+        let index = log_index.into();
+        self.logs()
+            .filter(move |c| c.log_index < index)
+            .sorted_by(|a, b| b.log_index.cmp(&a.log_index))
     }
 
     /// All logs issued by the callee (`call.to`)
@@ -513,6 +552,8 @@ impl TransactionData {
     }
 
     /// Returns an iterator over all logs that resulted due to this call
+    ///
+    /// TODO: this may return logs that happen later, this is due to sorting the logs by their address
     pub fn call_logs(
         &self,
         trace_address: &CallTraceAddress,

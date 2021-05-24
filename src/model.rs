@@ -148,12 +148,17 @@ pub enum CallClassification {
     /// TODO clarify: may also be a flash swap, since "all swaps are actually flash swaps"
     ///  https://uniswap.org/docs/v2/smart-contract-integration/using-flash-swaps/
     Swap,
+    FlashSwap,
 }
 
 impl CallClassification {
     /// Whether this is still not classified
     pub fn is_unknown(&self) -> bool {
         matches!(self, CallClassification::Unknown)
+    }
+    /// Whether this is still not classified
+    pub fn is_swap(&self) -> bool {
+        matches!(self, CallClassification::Swap)
     }
 }
 
@@ -184,6 +189,7 @@ impl FromStr for CallClassification {
             "borrow" => Ok(CallClassification::Borrow),
             "repay" => Ok(CallClassification::Repay),
             "swap" => Ok(CallClassification::Swap),
+            "flashswap" => Ok(CallClassification::FlashSwap),
             s => Err(format!("`{}` is not a valid action type", s)),
         }
     }
