@@ -17,6 +17,7 @@ use crate::{
     },
     DefiProtocol, ProtocolContracts,
 };
+use std::collections::HashSet;
 
 // Type aliases for Uniswap's `swap` return types
 type SwapTokensFor = (U256, U256, Vec<Address>, Address, U256);
@@ -67,11 +68,21 @@ impl DefiProtocol for Uniswap {
     }
 
     fn protocol() -> Protocol {
-        Protocol::UniswapV2
+        Protocol::Uniswappy
     }
 
     fn is_protocol_event(&self, log: &EventLog) -> bool {
         UniPairEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn is_protocol(&self, call: &InternalCall) -> Result<Option<Protocol>, ()> {
+        if let Some(protocol) = PROTOCOLS.get(&call.to) {
+            Ok(Some(*protocol))
+        } else if let Some(protocol) = PROTOCOLS.get(&call.from) {
+            Ok(Some(*protocol))
+        } else {
+            Ok(None)
+        }
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
@@ -80,58 +91,120 @@ impl DefiProtocol for Uniswap {
                 // `addLiquidity` calls `transferFrom` twice resulting in two `Transfer` events (tokenA, tokenB)
                 // https://github.com/Uniswap/uniswap-v2-periphery/blob/master/contracts/UniswapV2Router02.sol#L73-L74
                 // for addLiquidityEth its (token, WETH)
-                if let Some((a, b)) = self.decode_token_transfers(call, tx) {
-                    let action = AddLiquidityAct {
-                        tokens: vec![a.token, b.token],
-                        amounts: vec![a.value, b.value],
-                    };
-                    return Some(Action::with_logs(
-                        action.into(),
-                        call.trace_address.clone(),
-                        vec![a.log_index, b.log_index],
-                    ));
+                if let Some((_, mint_log, _)) = tx
+                    .call_logs_decoded::<unipair_mod::MintFilter>(&call.trace_address)
+                    .next()
+                {
+                    if let Some((transfer_0, transfer_1)) =
+                        self.decode_token_transfers_prior(call, tx, mint_log.log_index)
+                    {
+                        let action = AddLiquidityAct {
+                            tokens: vec![transfer_0.token, transfer_1.token],
+                            amounts: vec![transfer_0.value, transfer_1.value],
+                        };
+                        return Some(Action::with_logs(
+                            action.into(),
+                            call.trace_address.clone(),
+                            vec![
+                                transfer_0.log_index,
+                                transfer_1.log_index,
+                                mint_log.log_index,
+                            ],
+                        ));
+                    }
                 }
             }
             CallClassification::Liquidation => {
                 // get the burn event from the pair
                 // burn https://github.com/Uniswap/uniswap-v2-core/blob/master/contracts/UniswapV2Pair.sol#L148-L149
-                if let Some((a, b)) = self.decode_token_transfers(call, tx) {
-                    let action = AddLiquidityAct {
-                        tokens: vec![a.token, b.token],
-                        amounts: vec![a.value, b.value],
-                    };
-                    return Some(Action::with_logs(
-                        action.into(),
-                        call.trace_address.clone(),
-                        vec![a.log_index, b.log_index],
-                    ));
-                }
-            }
-            CallClassification::Swap => {
-                if let Some((a, b)) = self.decode_token_transfers(call, tx) {
-                    if let Some((_, pair_log, swap)) = tx
-                        .call_logs_decoded::<unipair_mod::SwapFilter>(&call.trace_address)
-                        .next()
+                if let Some((_, burn_log, _)) = tx
+                    .call_logs_decoded::<unipair_mod::BurnFilter>(&call.trace_address)
+                    .next()
+                {
+                    if let Some((transfer_0, transfer_1)) =
+                        self.decode_token_transfers_prior(call, tx, burn_log.log_index)
                     {
-                        let action = Trade {
-                            t1: Transfer {
-                                from: swap.sender,
-                                to: pair_log.address,
-                                amount: a.value,
-                                token: a.token,
-                            },
-                            t2: Transfer {
-                                from: pair_log.address,
-                                to: swap.sender,
-                                amount: b.value,
-                                token: b.token,
-                            },
+                        let action = AddLiquidityAct {
+                            tokens: vec![transfer_0.token, transfer_1.token],
+                            amounts: vec![transfer_0.value, transfer_1.value],
                         };
                         return Some(Action::with_logs(
                             action.into(),
                             call.trace_address.clone(),
-                            vec![a.log_index, b.log_index],
+                            vec![
+                                transfer_0.log_index,
+                                transfer_1.log_index,
+                                burn_log.log_index,
+                            ],
                         ));
+                    }
+                }
+            }
+            CallClassification::Swap => {
+                let protocol = uniswappy(&call.to, &call.from);
+                let protos = if protocol != Self::protocol() {
+                    vec![protocol]
+                } else {
+                    Vec::new()
+                };
+
+                // find the swap log
+                if let Some((swap_call, swap_log, swap)) = tx
+                    .call_logs_decoded::<unipair_mod::SwapFilter>(&call.trace_address)
+                    .next()
+                {
+                    // swap emits at least 1 `Transfer` event before the `Swap` event
+                    // https://github.com/Uniswap/uniswap-v2-core/blob/master/contracts/UniswapV2Pair.sol#L170-L171
+                    if swap.amount_0_out.is_zero() || swap.amount_1_out.is_zero() {
+                        // this is essentially a transfer of the token that's not `0`
+                        if let Some((transfer_log, transfer)) = tx
+                            .logs_prior_decoded::<erc20::TransferFilter>(swap_log.log_index)
+                            .next()
+                        {
+                            let transfer = Transfer {
+                                from: swap_call.to,
+                                to: transfer.to,
+                                amount: transfer.value,
+                                token: transfer_log.address,
+                            };
+                            return Some(Action::with_logs_and_protocols(
+                                transfer.into(),
+                                call.trace_address.clone(),
+                                vec![transfer_log.log_index, swap_log.log_index],
+                                protos,
+                            ));
+                        }
+                    } else {
+                        // this is a trade and there should be two 2 transfer events before the `swap`
+                        if let Some((transfer_0, transfer_1)) =
+                            self.decode_token_transfers_prior(call, tx, swap_log.log_index)
+                        {
+                            let action = Trade {
+                                t1: Transfer {
+                                    from: transfer_0.from,
+                                    to: transfer_0.to,
+                                    amount: transfer_0.value,
+                                    token: transfer_0.token,
+                                },
+                                t2: Transfer {
+                                    from: swap_log.address,
+                                    to: transfer_1.to,
+                                    amount: transfer_1.value,
+                                    token: transfer_1.token,
+                                },
+                            };
+
+                            return Some(Action::with_logs_and_protocols(
+                                action.into(),
+                                call.trace_address.clone(),
+                                vec![
+                                    transfer_0.log_index,
+                                    transfer_1.log_index,
+                                    swap_log.log_index,
+                                ],
+                                protos,
+                            ));
+                        }
                     }
                 }
             }
@@ -156,11 +229,18 @@ impl DefiProtocol for Uniswap {
             .is_ok()
         {
             Some((CallClassification::AddLiquidity, None))
-        } else if self.is_swap_call(call) {
-            Some((CallClassification::Swap, None))
-        } else if let Ok((_token_a, _token_b, _liquidity, _amount_amin, _amount_bmin, _to, _)) =
-            self.router
-                .decode::<RemoveLiquidity, _>("removeLiquidity", &call.input)
+        } else if let Ok((_, _, _, bytes)) = self.pair.decode::<PairSwap, _>("swap", &call.input) {
+            // we're only interested in the pair's `swap` function
+            if bytes.as_ref().is_empty() {
+                Some((CallClassification::Swap, None))
+            } else {
+                // TODO: Get an example tx.
+                Some((CallClassification::FlashSwap, None))
+            }
+        } else if self
+            .router
+            .decode::<RemoveLiquidity, _>("removeLiquidity", &call.input)
+            .is_ok()
         {
             Some((CallClassification::RemoveLiquidity, None))
         } else if let Ok((_token_a, _liquidity, _amount_token_min, _amount_ethmin, _to, _)) = self
@@ -175,34 +255,48 @@ impl DefiProtocol for Uniswap {
 }
 
 struct TokenTransfer {
+    from: Address,
     token: Address,
+    to: Address,
     value: U256,
     log_index: U256,
 }
 
 impl Uniswap {
-    fn decode_token_transfers(
+    /// Decodes two `Transfer` events that happen right before the event with the given `log_index`
+    fn decode_token_transfers_prior(
         &self,
         call: &InternalCall,
         tx: &TransactionData,
+        log_index: U256,
     ) -> Option<(TokenTransfer, TokenTransfer)> {
-        let mut transfers = tx.call_logs_decoded::<erc20::TransferFilter>(&call.trace_address);
+        let logs_by = tx
+            .call_logs(&call.trace_address)
+            .map(|(_, l)| l.log_index)
+            .collect::<HashSet<_>>();
+        let mut transfers = tx
+            .logs_prior_decoded::<erc20::TransferFilter>(log_index)
+            .filter(|(l, _)| logs_by.contains(&l.log_index));
 
-        if let (Some((_, log_a, transfer_a)), Some((_, log_b, transfer_b))) =
+        if let (Some((log_1, transfer_1)), Some((log_0, transfer_0))) =
             (transfers.next(), transfers.next())
         {
-            let a = TokenTransfer {
-                token: log_a.address,
-                value: transfer_a.value,
-                log_index: log_a.log_index,
+            let transfer_1 = TokenTransfer {
+                from: call.to,
+                to: transfer_1.to,
+                token: log_1.address,
+                value: transfer_1.value,
+                log_index: log_1.log_index,
             };
 
-            let b = TokenTransfer {
-                token: log_b.address,
-                value: transfer_b.value,
-                log_index: log_b.log_index,
+            let transfer_0 = TokenTransfer {
+                from: call.to,
+                to: transfer_0.to,
+                token: log_0.address,
+                value: transfer_0.value,
+                log_index: log_0.log_index,
             };
-            Some((a, b))
+            Some((transfer_0, transfer_1))
         } else {
             None
         }
@@ -261,7 +355,7 @@ impl Inspector for Uniswap {
                     self.pair.decode::<PairSwap, _>("swap", &call.input)
                 {
                     // add the protocol
-                    let protocol = uniswappy(&call);
+                    let protocol = uniswappy(&call.to, &call.from);
                     inspection.protocols.insert(protocol);
 
                     // skip flashswaps -- TODO: Get an example tx.
@@ -313,7 +407,7 @@ impl Inspector for Uniswap {
                     }
                 } else if (call.call_type == CallType::StaticCall && preflight) || self.check(call)
                 {
-                    let protocol = uniswappy(&call);
+                    let protocol = uniswappy(&call.to, &call.from);
                     inspection.protocols.insert(protocol);
                     *action = Classification::Prune;
                 }
@@ -341,10 +435,10 @@ impl Inspector for Uniswap {
     }
 }
 
-fn uniswappy(call: &TraceCall) -> Protocol {
-    if let Some(protocol) = PROTOCOLS.get(&call.to) {
+fn uniswappy(to: &Address, from: &Address) -> Protocol {
+    if let Some(protocol) = PROTOCOLS.get(to) {
         *protocol
-    } else if let Some(protocol) = PROTOCOLS.get(&call.from) {
+    } else if let Some(protocol) = PROTOCOLS.get(from) {
         *protocol
     } else {
         Protocol::Uniswappy
@@ -399,7 +493,7 @@ pub mod tests {
         addresses::ADDRESSBOOK,
         reducers::{ArbitrageReducer, TradeReducer},
         types::{Protocol, Status},
-        Reducer,
+        Reducer, TxReducer,
     };
     use crate::{inspectors::ERC20, types::Inspection, Inspector};
 
@@ -424,6 +518,14 @@ pub mod tests {
             inspection.prune();
         }
 
+        fn inspect_tx(&self, tx: &mut TransactionData) {
+            self.uni.inspect_tx(tx);
+            self.erc20.inspect_tx(tx);
+
+            self.trade.reduce_tx(tx);
+            self.arb.reduce_tx(tx);
+        }
+
         fn new() -> Self {
             Self {
                 erc20: ERC20::new(),
@@ -436,6 +538,27 @@ pub mod tests {
 
     mod arbitrages {
         use super::*;
+
+        #[test]
+        // https://etherscan.io/tx/0xd9306dc8c1230cc0faef22a8442d0994b8fc9a8f4c9faeab94a9a7eac8e59710
+        // This trace does not use the Routers, instead it goes directly to the YFI pair contracts
+        fn parse_uni_sushi_arb2() {
+            let mut tx =
+                get_tx("0xd9306dc8c1230cc0faef22a8442d0994b8fc9a8f4c9faeab94a9a7eac8e59710");
+            let uni = MyInspector::new();
+            uni.inspect_tx(&mut tx);
+
+            let actions = tx.actions().collect::<Vec<_>>();
+            assert_eq!(actions.len(), 3);
+
+            let arb = actions[1].as_arbitrage().unwrap();
+            assert!(arb.profit == U256::from_dec_str("626678385524850545").unwrap());
+
+            assert_eq!(
+                tx.protocols(),
+                crate::set![Protocol::Sushiswap, Protocol::UniswapV2]
+            );
+        }
 
         #[test]
         // https://etherscan.io/tx/0xd9306dc8c1230cc0faef22a8442d0994b8fc9a8f4c9faeab94a9a7eac8e59710
@@ -462,6 +585,21 @@ pub mod tests {
 
         // https://etherscan.io/tx/0xdfeae07360e2d7695a498e57e2054c658d1d78bbcd3c763fc8888b5433b6c6d5
         #[test]
+        fn xsp_xfi_eth_arb2() {
+            let mut tx =
+                get_tx("0xdfeae07360e2d7695a498e57e2054c658d1d78bbcd3c763fc8888b5433b6c6d5");
+            let uni = MyInspector::new();
+            uni.inspect_tx(&mut tx);
+
+            let actions = tx.actions().collect::<Vec<_>>();
+            assert!(actions[0].as_deposit().is_some());
+            let arb = actions[1].as_arbitrage().unwrap();
+            assert_eq!(arb.profit, U256::from_dec_str("23939671034095067").unwrap());
+            assert!(actions[2].as_withdrawal().is_some());
+        }
+
+        // https://etherscan.io/tx/0xdfeae07360e2d7695a498e57e2054c658d1d78bbcd3c763fc8888b5433b6c6d5
+        #[test]
         fn xsp_xfi_eth_arb() {
             let mut inspection =
                 get_trace("0xdfeae07360e2d7695a498e57e2054c658d1d78bbcd3c763fc8888b5433b6c6d5");
@@ -475,6 +613,20 @@ pub mod tests {
             assert_eq!(arb.profit, U256::from_dec_str("23939671034095067").unwrap());
             assert!(known[2].as_ref().as_withdrawal().is_some());
             assert_eq!(inspection.unknown().len(), 10);
+        }
+
+        // https://etherscan.io/tx/0xddbf97f758bd0958487e18d9e307cd1256b1ad6763cd34090f4c9720ba1b4acc
+        #[test]
+        fn triangular_router_arb2() {
+            let mut tx = read_tx("triangular_arb.data.json");
+            let uni = MyInspector::new();
+
+            uni.inspect_tx(&mut tx);
+
+            let actions = tx.actions().collect::<Vec<_>>();
+
+            let arb = actions[0].as_arbitrage().unwrap();
+            assert_eq!(arb.profit, U256::from_dec_str("9196963592118237").unwrap());
         }
 
         // https://etherscan.io/tx/0xddbf97f758bd0958487e18d9e307cd1256b1ad6763cd34090f4c9720ba1b4acc
@@ -563,6 +715,29 @@ pub mod tests {
 
     #[test]
     // https://etherscan.io/tx/0xb9d415abb21007d6d947949113b91b2bf33c82d291d510e23a08e64ce80bf5bf
+    fn bot_trade2() {
+        let mut tx = read_tx("bot_trade.data.json");
+        let uni = MyInspector::new();
+        uni.inspect_tx(&mut tx);
+
+        let actions = tx.actions().collect::<Vec<_>>();
+
+        let t1 = actions[0].as_transfer().unwrap();
+        assert_eq!(
+            t1.amount,
+            U256::from_dec_str("155025667786800022191").unwrap()
+        );
+        let trade = actions[1].as_trade().unwrap();
+        assert_eq!(
+            trade.t1.amount,
+            U256::from_dec_str("28831175112148480867").unwrap()
+        );
+        let _ = actions[2].as_transfer().unwrap();
+        let _ = actions[3].as_transfer().unwrap();
+    }
+
+    #[test]
+    // https://etherscan.io/tx/0xb9d415abb21007d6d947949113b91b2bf33c82d291d510e23a08e64ce80bf5bf
     fn bot_trade() {
         let mut inspection = read_trace("bot_trade.json");
         let uni = MyInspector::new();
@@ -624,6 +799,28 @@ pub mod tests {
 
         #[test]
         // https://etherscan.io/tx/0xeef0edcc4ce9aa85db5bc6a788b5a770dcc0d13eb7df4e7c008c1ac6666cd989
+        fn parse_exact_tokens_for_eth2() {
+            let mut tx = read_tx("exact_tokens_for_eth.data.json");
+            let uni = MyInspector::new();
+            uni.inspect_tx(&mut tx);
+
+            let actions = tx.actions().collect::<Vec<_>>();
+
+            // The router makes the first action by transferFrom'ing the tokens we're
+            // sending in
+            let trade = actions[0].as_trade().unwrap();
+            assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "WETH");
+
+            let withdrawal = actions[1].as_withdrawal();
+            assert!(withdrawal.is_some());
+
+            // send the eth to the buyer
+            let transfer = actions[2].as_transfer().unwrap();
+            assert_eq!(ADDRESSBOOK.get(&transfer.token).unwrap(), "ETH");
+        }
+
+        #[test]
+        // https://etherscan.io/tx/0xeef0edcc4ce9aa85db5bc6a788b5a770dcc0d13eb7df4e7c008c1ac6666cd989
         fn parse_exact_tokens_for_eth() {
             let mut inspection = read_trace("exact_tokens_for_eth.json");
             let uni = MyInspector::new();
@@ -651,6 +848,19 @@ pub mod tests {
 
         #[test]
         // https://etherscan.io/tx/0x622519e27d56ea892c6e5e479b68e1eb6278e222ed34d0dc4f8f0fd254723def/advanced#internal
+        fn parse_exact_tokens_for_tokens2() {
+            let mut tx = get_tx("622519e27d56ea892c6e5e479b68e1eb6278e222ed34d0dc4f8f0fd254723def");
+            let uni = MyInspector::new();
+            uni.inspect_tx(&mut tx);
+
+            let actions = tx.actions().collect::<Vec<_>>();
+            let trade = actions[0].as_trade().unwrap();
+            assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "YFI");
+            assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "WETH");
+        }
+
+        #[test]
+        // https://etherscan.io/tx/0x622519e27d56ea892c6e5e479b68e1eb6278e222ed34d0dc4f8f0fd254723def/advanced#internal
         fn parse_exact_tokens_for_tokens() {
             let mut inspection =
                 get_trace("622519e27d56ea892c6e5e479b68e1eb6278e222ed34d0dc4f8f0fd254723def");
@@ -664,6 +874,33 @@ pub mod tests {
             assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "WETH");
             assert_eq!(inspection.known().len(), 1);
             assert_eq!(inspection.unknown().len(), 2);
+        }
+
+        #[test]
+        // https://etherscan.io/tx/0x72493a035de37b73d3fcda2aa20852f4196165f3ce593244e51fa8e7c80bc13f/advanced#internal
+        fn parse_exact_eth_for_tokens2() {
+            let mut tx = get_tx("72493a035de37b73d3fcda2aa20852f4196165f3ce593244e51fa8e7c80bc13f");
+            let uni = MyInspector::new();
+            uni.inspect_tx(&mut tx);
+
+            let actions = tx.actions().collect::<Vec<_>>();
+
+            let transfer = actions[0].as_transfer().unwrap();
+            assert_eq!(ADDRESSBOOK.get(&transfer.token).unwrap(), "ETH");
+
+            let deposit = actions[1].as_deposit();
+            assert!(deposit.is_some());
+
+            let trade = actions[2].as_trade().unwrap();
+            assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "WETH");
+            assert_eq!(
+                trade.t1.amount,
+                U256::from_dec_str("4500000000000000000").unwrap()
+            );
+            assert_eq!(
+                trade.t2.amount,
+                U256::from_dec_str("13044604442132612367").unwrap()
+            );
         }
 
         #[test]

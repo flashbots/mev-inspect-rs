@@ -80,7 +80,7 @@ impl DefiProtocol for Compound {
                         sent_amount: liquidation.repay_amount,
 
                         received_token: liquidation.c_token_collateral,
-                        received_amount: 0.into(),
+                        received_amount: liquidation.seize_tokens,
 
                         from: call.from,
                         liquidated_user: liquidation.borrower,
@@ -90,6 +90,8 @@ impl DefiProtocol for Compound {
                         call.trace_address.clone(),
                         vec![log.log_index],
                     ));
+                } else {
+                    println!("liquidate decoding failed");
                 }
             }
             _ => {}
@@ -304,6 +306,29 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    // https://etherscan.io/tx/0xb7ba825294f757f8b8b6303b2aef542bcaebc9cc0217ddfaf822200a00594ed9
+    fn liquidate2() {
+        let mut tx = read_tx("compound_liquidation.data.json");
+        let ctoken_to_token = vec![(
+            parse_address("0xb3319f5d18bc0d84dd1b4825dcde5d5f7266d407"),
+            parse_address("0xe41d2489571d322189246dafa5ebde1f4699f498"),
+        )];
+        let compound = Compound::new(ctoken_to_token);
+        compound.inspect_tx(&mut tx);
+
+        let liquidation = tx.actions().liquidations().next().unwrap();
+
+        assert_eq!(ADDRESSBOOK.get(&liquidation.sent_token).unwrap(), "ZRX");
+        // cETH has 8 decimals
+        assert_eq!(liquidation.received_amount, 5250648.into());
+        // ZRX has 18 decimals
+        assert_eq!(liquidation.sent_amount, 653800000000000000u64.into());
+
+        assert!(tx.protocols().contains(&Protocol::Compound));
+        assert_eq!(tx.status, Status::Success);
+    }
 
     #[test]
     // https://etherscan.io/tx/0xb7ba825294f757f8b8b6303b2aef542bcaebc9cc0217ddfaf822200a00594ed9

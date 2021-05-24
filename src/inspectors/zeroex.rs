@@ -51,10 +51,12 @@ impl DefiProtocol for ZeroEx {
         match call.classification {
             CallClassification::Transfer => {
                 // https://github.com/0xProject/0x-monorepo/blob/development/contracts/asset-proxy/contracts/src/interfaces/IERC20Bridge.sol#L34
+                println!("try bridge transfer decoding");
                 if let Some((_, log, swap)) = tx
                     .call_logs_decoded::<Erc20BridgeTransferFilter>(&call.trace_address)
                     .next()
                 {
+                    println!("decoded zerox transfer");
                     let action = Trade {
                         t1: Transfer {
                             from: swap.from,
@@ -69,10 +71,19 @@ impl DefiProtocol for ZeroEx {
                             token: swap.output_token,
                         },
                     };
-                    return Some(Action::with_logs(
+
+                    // the bridge call will tell us which sub-protocol was used
+                    let additional_protocols = PROTOCOLS
+                        .get(&swap.from)
+                        .cloned()
+                        .map(|p| vec![p])
+                        .unwrap_or_default();
+
+                    return Some(Action::with_logs_and_protocols(
                         action.into(),
                         call.trace_address.clone(),
                         vec![log.log_index],
+                        additional_protocols,
                     ));
                 }
             }
@@ -147,7 +158,7 @@ mod tests {
         reducers::{ArbitrageReducer, TradeReducer},
         test_helpers::*,
         types::Status,
-        Reducer,
+        Reducer, TxReducer,
     };
 
     struct MyInspector {
@@ -166,6 +177,13 @@ mod tests {
             inspection.prune();
         }
 
+        fn inspect_tx(&self, tx: &mut TransactionData) {
+            self.zeroex.inspect_tx(tx);
+            self.erc20.inspect_tx(tx);
+            self.trade.reduce_tx(tx);
+            self.arbitrage.reduce_tx(tx);
+        }
+
         fn new() -> Self {
             Self {
                 zeroex: ZeroEx::default(),
@@ -174,6 +192,15 @@ mod tests {
                 arbitrage: ArbitrageReducer,
             }
         }
+    }
+
+    #[test]
+    // Split trade between balancer and uniswap via the 0x exchange proxy
+    fn balancer_uni_zeroex2() {
+        let mut tx = read_tx("exchange_proxy.data.json");
+        let zeroex = MyInspector::new();
+        zeroex.inspect_tx(&mut tx);
+        assert_eq!(tx.status, Status::Reverted);
     }
 
     #[test]

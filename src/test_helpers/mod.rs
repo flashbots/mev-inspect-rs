@@ -9,7 +9,10 @@ use std::{collections::HashSet, convert::TryInto};
 pub const TRACE: &str = include_str!("../../res/11017338.trace.json");
 pub static TRACES: Lazy<Vec<Trace>> = Lazy::new(|| serde_json::from_str(TRACE).unwrap());
 
-#[derive(Serialize, Deserialize)]
+pub const TXINFO: &str = include_str!("../../res/11017338.data.json");
+pub static TXINFOS: Lazy<Vec<TxInfo>> = Lazy::new(|| serde_json::from_str(TXINFO).unwrap());
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TxInfo {
     pub traces: Vec<Trace>,
     pub logs: Vec<Log>,
@@ -53,6 +56,31 @@ pub fn read_tx(path: &str) -> TransactionData {
         .filter_map(|log| EventLog::try_from(log).ok())
         .collect();
     TransactionData::create(traces.into_iter(), logs).unwrap()
+}
+
+pub fn get_tx(hash: &str) -> TransactionData {
+    let hash = if hash.starts_with("0x") {
+        &hash[2..]
+    } else {
+        hash
+    };
+
+    TXINFOS
+        .iter()
+        .filter(|t| t.traces[0].transaction_hash == Some(hash.parse::<TxHash>().unwrap()))
+        .cloned()
+        .map(|t| {
+            (
+                t.traces,
+                t.logs
+                    .into_iter()
+                    .filter_map(|log| EventLog::try_from(log).ok())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .filter_map(|(traces, logs)| TransactionData::create(traces.into_iter(), logs).ok())
+        .next()
+        .unwrap()
 }
 
 pub fn get_trace(hash: &str) -> Inspection {

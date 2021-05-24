@@ -10,7 +10,7 @@ use crate::model::{CallClassification, EventLog, InternalCall};
 use crate::types::actions::{SpecificAction, Transfer};
 use crate::types::{Action, TransactionData};
 use ethers::{
-    contract::{abigen, BaseContract, EthLogDecode},
+    contract::{abigen, BaseContract, EthEvent, EthLogDecode},
     types::{Address, U256},
 };
 
@@ -50,6 +50,46 @@ impl Balancer {
     }
 }
 
+// this is a hack to overcome the `ethers` generated paths
+use ethers::contract as ethers_contract;
+use ethers::core as ethers_core;
+#[derive(Debug, Clone, EthEvent)]
+#[ethevent(
+    name = "LOG_SWAP",
+    abi = "LOG_SWAP(address,address,address,uint256,uint256)"
+)]
+/// This is an outdated event type that is missing the `reservesAmount` field
+pub struct OldLogSwapFilter {
+    #[ethevent(indexed)]
+    pub caller: Address,
+    #[ethevent(indexed)]
+    pub token_in: Address,
+    #[ethevent(indexed)]
+    pub token_out: Address,
+    pub token_amount_in: U256,
+    pub token_amount_out: U256,
+}
+
+impl From<LogSwapFilter> for OldLogSwapFilter {
+    fn from(filter: LogSwapFilter) -> Self {
+        let LogSwapFilter {
+            caller,
+            token_in,
+            token_out,
+            token_amount_in,
+            token_amount_out,
+            ..
+        } = filter;
+        OldLogSwapFilter {
+            caller,
+            token_in,
+            token_out,
+            token_amount_in,
+            token_amount_out,
+        }
+    }
+}
+
 impl DefiProtocol for Balancer {
     fn base_contracts(&self) -> ProtocolContracts {
         ProtocolContracts::Dual(&self.bpool, &self.bproxy)
@@ -59,9 +99,13 @@ impl DefiProtocol for Balancer {
         Protocol::Balancer
     }
 
-    fn is_protocol(&self, to: &Address) -> Option<bool> {
+    fn is_protocol(&self, call: &InternalCall) -> Result<Option<Protocol>, ()> {
         // TODO: Adjust for exchange proxy calls
-        Some(*to == *BALANCER_PROXY)
+        if call.to == *BALANCER_PROXY {
+            Ok(Some(Self::protocol()))
+        } else {
+            Ok(None)
+        }
     }
 
     fn is_protocol_event(&self, log: &EventLog) -> bool {
@@ -73,10 +117,17 @@ impl DefiProtocol for Balancer {
             CallClassification::Swap => {
                 // `LOG_SWAP` events are directly emitted by the callee:
                 // https://github.com/balancer-labs/balancer-core/blob/master/contracts/BPool.sol#L478
-                if let Some((c, log, swap)) = tx
+                let mut swap = tx
                     .call_logs_decoded::<LogSwapFilter>(&call.trace_address)
-                    .next()
-                {
+                    .map(|(c, l, filter)| (c, l, filter.into()))
+                    .next();
+                if swap.is_none() {
+                    // try the other event abi
+                    swap = tx
+                        .call_logs_decoded::<OldLogSwapFilter>(&call.trace_address)
+                        .next();
+                }
+                if let Some((c, log, swap)) = swap {
                     // swap token_in from caller to the calle for
                     //      token_out from the callee to the caller
                     let action = Trade {
@@ -98,6 +149,8 @@ impl DefiProtocol for Balancer {
                         call.trace_address.clone(),
                         vec![log.log_index],
                     ));
+                } else {
+                    println!("failed to decode");
                 }
             }
             _ => {}
@@ -138,7 +191,7 @@ impl Inspector for Balancer {
                 {
                     inner
                 } else {
-                    if self.is_protocol(&calltrace.call.to).unwrap_or_default() {
+                    if calltrace.call.to == *BALANCER_PROXY {
                         inspection.protocols.insert(Protocol::Balancer);
                     }
                     continue;
@@ -195,7 +248,7 @@ mod tests {
         inspectors::ERC20,
         reducers::{ArbitrageReducer, TradeReducer},
         types::Inspection,
-        Inspector, Reducer,
+        Inspector, Reducer, TxReducer,
     };
 
     struct MyInspector {
@@ -214,6 +267,13 @@ mod tests {
             inspection.prune();
         }
 
+        fn inspect_tx(&self, tx: &mut TransactionData) {
+            self.balancer.inspect_tx(tx);
+            self.erc20.inspect_tx(tx);
+            self.trade.reduce_tx(tx);
+            self.arb.reduce_tx(tx);
+        }
+
         fn new() -> Self {
             Self {
                 erc20: ERC20::new(),
@@ -222,6 +282,27 @@ mod tests {
                 arb: ArbitrageReducer,
             }
         }
+    }
+
+    #[test]
+    fn bot_trade2() {
+        let mut tx = read_tx("balancer_trade.data.json");
+        let bal = MyInspector::new();
+        bal.inspect_tx(&mut tx);
+
+        let actions = tx.actions().collect::<Vec<_>>();
+        let t1 = actions[0].as_transfer().unwrap();
+        assert_eq!(
+            t1.amount,
+            U256::from_dec_str("134194492674651541324").unwrap()
+        );
+        let trade = actions[1].as_trade().unwrap();
+        assert_eq!(
+            trade.t1.amount,
+            U256::from_dec_str("7459963749616500736").unwrap()
+        );
+        let _ = actions[2].as_transfer().unwrap();
+        let _ = actions[3].as_transfer().unwrap();
     }
 
     #[test]
@@ -245,6 +326,33 @@ mod tests {
         );
         let _t2 = known[2].as_ref().as_transfer().unwrap();
         let _t3 = known[3].as_ref().as_transfer().unwrap();
+    }
+
+    #[test]
+    fn comp_collect_trade2() {
+        let mut tx = read_tx("balancer_trade2.data.json");
+        let bal = MyInspector::new();
+        bal.inspect_tx(&mut tx);
+
+        let known = tx.actions().collect::<Vec<_>>();
+
+        let trade = known[0].as_trade().unwrap();
+        assert_eq!(
+            trade.t1.amount,
+            U256::from_dec_str("1882725882636").unwrap()
+        );
+        assert_eq!(ADDRESSBOOK.get(&trade.t1.token).unwrap(), "cDAI",);
+        assert_eq!(
+            trade.t2.amount,
+            U256::from_dec_str("2048034448010009909").unwrap()
+        );
+        assert_eq!(ADDRESSBOOK.get(&trade.t2.token).unwrap(), "COMP",);
+
+        // 2 comp payouts
+        let t1 = known[1].as_transfer().unwrap();
+        assert_eq!(ADDRESSBOOK.get(&t1.token).unwrap(), "COMP",);
+        let t2 = known[2].as_transfer().unwrap();
+        assert_eq!(ADDRESSBOOK.get(&t2.token).unwrap(), "COMP",);
     }
 
     #[test]

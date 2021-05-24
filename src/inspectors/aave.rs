@@ -46,8 +46,12 @@ impl DefiProtocol for Aave {
         Protocol::Aave
     }
 
-    fn is_protocol(&self, to: &Address) -> Option<bool> {
-        Some(*to == *AAVE_LENDING_POOL)
+    fn is_protocol(&self, call: &InternalCall) -> Result<Option<Protocol>, ()> {
+        if call.to == *AAVE_LENDING_POOL {
+            Ok(Some(Self::protocol()))
+        } else {
+            Err(())
+        }
     }
 
     fn is_protocol_event(&self, log: &EventLog) -> bool {
@@ -68,8 +72,7 @@ impl DefiProtocol for Aave {
                         sent_token: liquidation.reserve,
                         sent_amount: liquidation.purchase_amount,
                         received_token: liquidation.collateral,
-                        // Set liquidation amount to 0. We'll set it at the reducer
-                        received_amount: U256::zero(),
+                        received_amount: liquidation.liquidated_collateral_amount,
                         from: call.from,
                         liquidated_user: liquidation.user,
                     };
@@ -215,12 +218,22 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn simple_liquidation2() {
+    #[test]
+    fn simple_liquidation2() {
         let mut tx = read_tx("simple_liquidation.data.json");
         let aave = MyInspector::new();
         aave.inspect_tx(&mut tx);
-        dbg!(tx.actions().collect::<Vec<_>>());
+
+        let liquidation = tx.actions().liquidations().next().unwrap();
+
+        assert_eq!(
+            liquidation.sent_amount.to_string(),
+            "11558317402311470764075"
+        );
+        assert_eq!(
+            liquidation.received_amount.to_string(),
+            "1100830609991235507621"
+        );
     }
 
     #[tokio::test]

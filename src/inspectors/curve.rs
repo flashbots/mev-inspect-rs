@@ -188,11 +188,12 @@ impl Curve {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::read_tx;
     use crate::{
         inspectors::ERC20,
         reducers::{ArbitrageReducer, TradeReducer},
         test_helpers::read_trace,
-        Reducer,
+        Reducer, TxReducer,
     };
     use ethers::providers::Provider;
     use std::convert::TryFrom;
@@ -223,6 +224,13 @@ mod tests {
             inspection.prune();
         }
 
+        fn inspect_tx(&self, tx: &mut TransactionData) {
+            self.inspector.inspect_tx(tx);
+            self.erc20.inspect_tx(tx);
+            self.reducer1.reduce_tx(tx);
+            self.reducer2.reduce_tx(tx);
+        }
+
         fn new() -> Self {
             Self {
                 inspector: Curve::new(vec![]),
@@ -233,8 +241,18 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn simple_arb() {
+    #[test]
+    fn simple_arb2() {
+        let mut tx = read_tx("simple_curve_arb.data.json");
+        let inspector = MyInspector::new();
+        inspector.inspect_tx(&mut tx);
+
+        let arb = tx.actions().arbitrage().next().unwrap();
+        assert_eq!(arb.profit.to_string(), "45259140804");
+    }
+
+    #[test]
+    fn simple_arb() {
         let mut inspection = read_trace("simple_curve_arb.json");
         let inspector = MyInspector::new();
         inspector.inspect(&mut inspection);

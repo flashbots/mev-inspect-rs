@@ -2,6 +2,7 @@ use crate::model::{CallClassification, EventLog, InternalCall};
 use crate::types::{Action, Protocol, TransactionData};
 use crate::{
     addresses::{ETH, WETH},
+    inspect_tx,
     types::{
         actions::{Deposit, SpecificAction, Transfer, Withdrawal},
         Classification, Inspection,
@@ -92,30 +93,20 @@ impl DefiProtocol for ERC20 {
             .is_ok()
         {
             Some((CallClassification::Transfer, None))
-        } else if let Ok((from, amount)) =
-            self.0.decode::<(Address, U256), _>("burnFrom", &call.input)
+        } else if self
+            .0
+            .decode::<(Address, U256), _>("burnFrom", &call.input)
+            .is_ok()
         {
-            Some((
-                CallClassification::Transfer,
-                Some(SpecificAction::Transfer(Transfer {
-                    from,
-                    // Burns send to `0x0`
-                    to: Address::zero(),
-                    amount,
-                    token: call.to,
-                })),
-            ))
-        } else if let Ok((to, amount)) = self.0.decode::<(Address, U256), _>("mint", &call.input) {
-            Some((
-                CallClassification::Transfer,
-                Some(SpecificAction::Transfer(Transfer {
-                    // Mints create from `0x0`
-                    from: Address::zero(),
-                    to,
-                    amount,
-                    token: call.to,
-                })),
-            ))
+            // emits a transfer event that will be caught `decode_call_action`
+            Some((CallClassification::Transfer, None))
+        } else if self
+            .0
+            .decode::<(Address, U256), _>("mint", &call.input)
+            .is_ok()
+        {
+            // emits a transfer event that will be caught `decode_call_action`
+            Some((CallClassification::Transfer, None))
         } else if self
             .0
             .decode::<(Address, U256), _>("transfer", &call.input)
@@ -152,6 +143,12 @@ impl DefiProtocol for ERC20 {
         } else {
             None
         }
+    }
+
+    fn inspect_tx(&self, tx: &mut TransactionData) {
+        inspect_tx(self, tx);
+        // get rid of erc20 duplicate events
+        tx.remove_duplicate_transfers();
     }
 }
 
