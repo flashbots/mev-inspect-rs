@@ -7,8 +7,8 @@ use crate::{
 };
 
 use crate::model::{CallClassification, EventLog, InternalCall};
-use crate::types::actions::SpecificAction;
-use crate::types::{Action, TransactionData};
+use crate::types::actions::{SpecificAction, Trade, Transfer};
+use crate::types::{decode_token_transfers_prior, Action, TransactionData};
 use ethers::{
     abi::parse_abi,
     contract::{abigen, ContractError},
@@ -18,7 +18,9 @@ use ethers::{
 };
 use std::collections::HashMap;
 
-// Type aliases for Curve
+/// Type aliases for Curve
+/// i: int128, j: int128, _dx: uint256, _min_dy: uint256
+/// https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L447
 type Exchange = (u128, u128, U256, U256);
 
 #[derive(Debug, Clone)]
@@ -73,6 +75,44 @@ impl DefiProtocol for Curve {
                     ));
                 }
             }
+            CallClassification::Swap => {
+                // find the swap log
+                if let Some((swap_call, swap_log, _)) = tx
+                    .call_logs_decoded::<curvepool_mod::TokenExchangeFilter>(&call.trace_address)
+                    .next()
+                {
+                    // There are 2 transfers before the `TokenExchange` log
+                    // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L506
+                    if let Some((transfer_0, transfer_1)) =
+                        decode_token_transfers_prior(call, tx, swap_log.log_index)
+                    {
+                        let action = Trade {
+                            t1: Transfer {
+                                from: call.from,
+                                to: transfer_0.to,
+                                amount: transfer_0.value,
+                                token: transfer_0.token,
+                            },
+                            t2: Transfer {
+                                from: swap_log.address,
+                                to: transfer_1.to,
+                                amount: transfer_1.value,
+                                token: transfer_1.token,
+                            },
+                        };
+
+                        return Some(Action::with_logs(
+                            action.into(),
+                            call.trace_address.clone(),
+                            vec![
+                                transfer_0.log_index,
+                                transfer_1.log_index,
+                                swap_log.log_index,
+                            ],
+                        ));
+                    }
+                }
+            }
             _ => {}
         }
         None
@@ -83,8 +123,17 @@ impl DefiProtocol for Curve {
         call: &InternalCall,
     ) -> Option<(CallClassification, Option<SpecificAction>)> {
         // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L372
-        self.as_add_liquidity(&call.to, &call.input)
-            .map(|_| (CallClassification::AddLiquidity, None))
+        if self.as_add_liquidity(&call.to, &call.input).is_some() {
+            Some((CallClassification::AddLiquidity, None))
+        } else if self
+            .pool
+            .decode::<Exchange, _>("exchange", &call.input)
+            .is_ok()
+        {
+            Some((CallClassification::Swap, None))
+        } else {
+            None
+        }
     }
 }
 
