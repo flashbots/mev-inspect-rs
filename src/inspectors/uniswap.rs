@@ -6,7 +6,7 @@ use ethers::{
 use crate::inspectors::erc20::{self, ERC20};
 use crate::model::{CallClassification, EventLog, InternalCall};
 use crate::types::actions::{SpecificAction, Transfer};
-use crate::types::{Action, TransactionData};
+use crate::types::{decode_token_transfers_prior, Action, TransactionData};
 use crate::{
     addresses::{AAVE_LENDING_POOL_CORE, PROTOCOLS},
     inspectors::find_matching,
@@ -96,7 +96,7 @@ impl DefiProtocol for Uniswap {
                     .next()
                 {
                     if let Some((transfer_0, transfer_1)) =
-                        self.decode_token_transfers_prior(call, tx, mint_log.log_index)
+                        decode_token_transfers_prior(call, tx, mint_log.log_index)
                     {
                         let action = AddLiquidityAct {
                             tokens: vec![transfer_0.token, transfer_1.token],
@@ -122,7 +122,7 @@ impl DefiProtocol for Uniswap {
                     .next()
                 {
                     if let Some((transfer_0, transfer_1)) =
-                        self.decode_token_transfers_prior(call, tx, burn_log.log_index)
+                        decode_token_transfers_prior(call, tx, burn_log.log_index)
                     {
                         let action = AddLiquidityAct {
                             tokens: vec![transfer_0.token, transfer_1.token],
@@ -177,11 +177,11 @@ impl DefiProtocol for Uniswap {
                     } else {
                         // this is a trade and there should be two 2 transfer events before the `swap`
                         if let Some((transfer_0, transfer_1)) =
-                            self.decode_token_transfers_prior(call, tx, swap_log.log_index)
+                            decode_token_transfers_prior(call, tx, swap_log.log_index)
                         {
                             let action = Trade {
                                 t1: Transfer {
-                                    from: transfer_0.from,
+                                    from: call.from,
                                     to: transfer_0.to,
                                     amount: transfer_0.value,
                                     token: transfer_0.token,
@@ -246,55 +246,6 @@ impl DefiProtocol for Uniswap {
             .decode::<RemoveLiquidityEth, _>("removeLiquidityETH", &call.input)
         {
             Some((CallClassification::RemoveLiquidity, None))
-        } else {
-            None
-        }
-    }
-}
-
-struct TokenTransfer {
-    from: Address,
-    token: Address,
-    to: Address,
-    value: U256,
-    log_index: U256,
-}
-
-impl Uniswap {
-    /// Decodes two `Transfer` events that happen right before the event with the given `log_index`
-    fn decode_token_transfers_prior(
-        &self,
-        call: &InternalCall,
-        tx: &TransactionData,
-        log_index: U256,
-    ) -> Option<(TokenTransfer, TokenTransfer)> {
-        let logs_by = tx
-            .call_logs(&call.trace_address)
-            .map(|(_, l)| l.log_index)
-            .collect::<HashSet<_>>();
-        let mut transfers = tx
-            .logs_prior_decoded::<erc20::TransferFilter>(log_index)
-            .filter(|(l, _)| logs_by.contains(&l.log_index));
-
-        if let (Some((log_1, transfer_1)), Some((log_0, transfer_0))) =
-            (transfers.next(), transfers.next())
-        {
-            let transfer_1 = TokenTransfer {
-                from: call.to,
-                to: transfer_1.to,
-                token: log_1.address,
-                value: transfer_1.value,
-                log_index: log_1.log_index,
-            };
-
-            let transfer_0 = TokenTransfer {
-                from: call.to,
-                to: transfer_0.to,
-                token: log_0.address,
-                value: transfer_0.value,
-                log_index: log_0.log_index,
-            };
-            Some((transfer_0, transfer_1))
         } else {
             None
         }

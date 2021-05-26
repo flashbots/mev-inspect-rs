@@ -17,7 +17,8 @@ use thiserror::Error;
 
 use crate::mevdb::BatchInserts;
 use crate::model::EventLog;
-use crate::types::{EvalError, Evaluation, TransactionData};
+use crate::types::inspection::TraceWrapper;
+use crate::types::{EvalError, Evaluation, Inspection, TransactionData};
 use crate::{DefiProtocol, HistoricalPrice, MevDB, TxReducer};
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -40,48 +41,27 @@ impl BatchInspector {
         }
     }
 
-    // /// Given a trace iterator, it groups all traces for the same tx hash
-    // /// and then inspects them and all of their subtraces
-    // pub fn inspect_many(&self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
-    //     // group traces in a block by tx hash
-    //     let traces = traces.into_iter().group_by(|t| t.transaction_hash);
-    //
-    //     // inspects everything
-    //     traces
-    //         .into_iter()
-    //         // Convert the traces to inspections
-    //         .filter_map(|(_, traces)| self.inspect_one(traces))
-    //         .collect::<Vec<_>>()
-    // }
-    //
-    // pub fn inspect_one<T>(&self, traces: T) -> Option<Inspection>
-    // where
-    //     T: IntoIterator<Item = Trace>,
-    // {
-    //     let mut res = None;
-    //     if let Ok(mut i) = Inspection::try_from(TraceWrapper(traces)) {
-    //         if !i.actions.is_empty() {
-    //             self.inspect(&mut i);
-    //             self.reduce(&mut i);
-    //             i.prune();
-    //             res = Some(i);
-    //         }
-    //     }
-    //     res
-    // }
-    //
-    // /// Decodes the inspection's actions
-    // pub fn inspect(&self, inspection: &mut Inspection) {
-    //     for inspector in self.inspectors.iter() {
-    //         inspector.inspect(inspection);
-    //     }
-    // }
-    //
-    // pub fn reduce(&self, inspection: &mut Inspection) {
-    //     for reducer in self.reducers.iter() {
-    //         reducer.reduce(inspection);
-    //     }
-    // }
+    /// Given a trace iterator, it groups all traces for the same tx hash
+    /// and then inspects them and all of their subtraces
+    pub fn inspect_many(&self, traces: impl IntoIterator<Item = Trace>) -> Vec<Inspection> {
+        todo!()
+    }
+
+    pub fn inspect_one<T>(&self, traces: T) -> Option<Inspection>
+    where
+        T: IntoIterator<Item = Trace>,
+    {
+        todo!()
+    }
+
+    /// Decodes the inspection's actions
+    pub fn inspect(&self, inspection: &mut Inspection) {
+        todo!()
+    }
+
+    pub fn reduce(&self, inspection: &mut Inspection) {
+        todo!()
+    }
 
     /// Decodes the inspection's actions
     pub fn inspect_tx(&self, tx: &mut TransactionData) {
@@ -420,9 +400,57 @@ mod tests {
         set,
         test_helpers::*,
         types::{Protocol, Status},
+        Inspector, Reducer,
     };
 
     use super::*;
+
+    #[test]
+    // call that starts from a bot but has a uniswap sub-trace
+    // https://etherscan.io/tx/0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f
+    // 99k USDC -> 281 ETH -> 5.7 YFI trade
+    // Liquidator Repay -> 5.7 YFI
+    // Liquidation -> 292 ETH
+    // Profit: 11 ETH
+    fn aave_uni_liquidation2() {
+        let mut tx = get_tx("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(Aave::new()),
+                Box::new(Uniswap::default()),
+                Box::new(Curve::new(vec![])), // even though the Curve inspector is on, there's no Curve in the found protocols
+                Box::new(ERC20::new()),
+            ],
+            vec![
+                // Classify liquidations first
+                Box::new(TradeReducer),
+                Box::new(LiquidationReducer),
+                Box::new(ArbitrageReducer),
+            ],
+        );
+        inspector.inspect_tx(&mut tx);
+        inspector.reduce_tx(&mut tx);
+
+        let liquidation = tx.actions().profitable_liquidations().next().unwrap();
+        assert_eq!(
+            liquidation.profit,
+            U256::from_dec_str("11050220339336811520").unwrap()
+        );
+        assert_eq!(
+            tx.protocols(),
+            // SushiSwap is touched in a static call. The bot probably
+            // checked whether it was more profitable to trade the
+            // ETH for YFI on Sushi or Uni
+            set![Protocol::UniswapV2, Protocol::Sushiswap, Protocol::Aave]
+        );
+
+        assert_eq!(ADDRESSBOOK.get(&liquidation.token).unwrap(), "ETH");
+        assert_eq!(
+            ADDRESSBOOK.get(&liquidation.as_ref().sent_token).unwrap(),
+            "YFI"
+        );
+    }
 
     #[test]
     // call that starts from a bot but has a uniswap sub-trace
@@ -481,6 +509,32 @@ mod tests {
 
     #[test]
     // https://etherscan.io/tx/0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627
+    fn balancer_uni_arb_2() {
+        let mut tx = get_tx("0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(Uniswap::default()),
+                Box::new(Curve::new(vec![])),
+                Box::new(Balancer::default()),
+                Box::new(ERC20::new()),
+            ],
+            vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
+        );
+        inspector.inspect_tx(&mut tx);
+        inspector.reduce_tx(&mut tx);
+
+        let arb = tx.actions().arbitrage().next().unwrap();
+        assert_eq!(arb.profit, U256::from_dec_str("41108016724856778").unwrap());
+        assert_eq!(arb.token, *WETH);
+        assert_eq!(
+            tx.protocols(),
+            set![Protocol::UniswapV2, Protocol::Balancer]
+        );
+    }
+
+    #[test]
+    // https://etherscan.io/tx/0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627
     fn balancer_uni_arb() {
         let mut inspection =
             get_trace("0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627");
@@ -507,6 +561,32 @@ mod tests {
         assert_eq!(arb.token, *WETH);
         assert_eq!(
             inspection.protocols,
+            set![Protocol::UniswapV2, Protocol::Balancer]
+        );
+    }
+
+    #[test]
+    // https://etherscan.io/tx/0x1d9a2c8bfcd9f6e133c490d892fe3869bada484160a81966e645616cfc21652a
+    fn balancer_uni_arb22() {
+        let mut tx = get_tx("0x1d9a2c8bfcd9f6e133c490d892fe3869bada484160a81966e645616cfc21652a");
+
+        let inspector = BatchInspector::new(
+            vec![
+                Box::new(Uniswap::default()),
+                Box::new(Curve::new(vec![])),
+                Box::new(Balancer::default()),
+                Box::new(ERC20::new()),
+            ],
+            vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
+        );
+        inspector.inspect_tx(&mut tx);
+        inspector.reduce_tx(&mut tx);
+
+        let arb = tx.actions().arbitrage().next().unwrap();
+        assert_eq!(arb.profit, U256::from_dec_str("47597234528640869").unwrap());
+        assert_eq!(arb.token, *WETH);
+        assert_eq!(
+            tx.protocols(),
             set![Protocol::UniswapV2, Protocol::Balancer]
         );
     }
@@ -544,22 +624,70 @@ mod tests {
     }
 
     #[test]
-    fn curve_arb() {
-        let mut inspection = read_trace("curve_arb.json");
+    fn curve_arb2() {
+        let mut tx = read_tx("curve_arb.data.json");
 
         let inspector = BatchInspector::new(
             vec![
-                Box::new(ERC20::new()),
                 Box::new(Uniswap::default()),
                 Box::new(Curve::new(vec![])),
+                Box::new(ERC20::new()),
             ],
             vec![Box::new(TradeReducer), Box::new(ArbitrageReducer)],
         );
+        inspector.inspect_tx(&mut tx);
+        inspector.reduce_tx(&mut tx);
+
+        let arb = tx.actions().arbitrage().next().unwrap();
+        assert_eq!(arb.profit, U256::from_dec_str("14397525374450478").unwrap());
+        assert_eq!(arb.token, *WETH);
+        assert_eq!(
+            tx.protocols(),
+            set![Protocol::Sushiswap, Protocol::Curve, Protocol::ZeroEx]
+        );
+    }
+
+    // inspector that does all 3 transfer/trade/arb combos
+    struct MyInspector {
+        erc20: ERC20,
+        uni: Uniswap,
+        curve: Curve,
+        trade: TradeReducer,
+        arb: ArbitrageReducer,
+    }
+
+    impl MyInspector {
+        fn inspect(&self, inspection: &mut Inspection) {
+            self.erc20.inspect(inspection);
+            self.uni.inspect(inspection);
+            self.curve.inspect(inspection);
+
+            self.trade.reduce(inspection);
+            // self.arb.reduce(inspection);
+
+            inspection.prune();
+        }
+        fn new() -> Self {
+            Self {
+                erc20: ERC20::new(),
+                uni: Uniswap::default(),
+                curve: Curve::new(vec![]),
+                trade: TradeReducer,
+                arb: ArbitrageReducer,
+            }
+        }
+    }
+
+    #[test]
+    fn curve_x_arb() {
+        let mut inspection = read_trace("curve_arb.json");
+
+        let inspector = MyInspector::new();
         inspector.inspect(&mut inspection);
-        inspector.reduce(&mut inspection);
-        inspection.prune();
 
         let known = inspection.known();
+
+        dbg!(known.clone());
 
         let arb = known
             .iter()

@@ -1,3 +1,4 @@
+use crate::addresses::PROTOCOLS;
 use crate::model::{CallClassification, EventLog, InternalCall};
 use crate::types::actions::SpecificAction;
 use crate::types::{Action, Inspection, Protocol, TransactionData};
@@ -87,6 +88,10 @@ pub(crate) fn inspect_tx<T: DefiProtocol + ?Sized>(proto: &T, tx: &mut Transacti
                     decode_again.push(call.trace_address.clone());
                 }
             }
+        }
+        // check if the address of the contract is a known protocol
+        if call.protocol.is_none() {
+            call.protocol = PROTOCOLS.get(&call.to).cloned();
         }
     }
 

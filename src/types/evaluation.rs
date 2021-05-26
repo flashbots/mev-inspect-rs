@@ -25,6 +25,8 @@ pub enum ActionType {
     Liquidation,
     Arbitrage,
     Trade,
+    RemoveLiquidity,
+    AddLiquidity,
 }
 
 impl fmt::Display for ActionType {
@@ -41,6 +43,8 @@ impl FromStr for ActionType {
             "liquidation" | "Liquidation" => Ok(ActionType::Liquidation),
             "arbitrage" | "Arbitrage" => Ok(ActionType::Arbitrage),
             "trade" | "Trade" => Ok(ActionType::Trade),
+            "addliquidity" | "Addliquidity" => Ok(ActionType::AddLiquidity),
+            "removeliquidity" | "Removeliquidity" => Ok(ActionType::RemoveLiquidity),
             s => Err(format!("`{}` is nat a valid action type", s)),
         }
     }
@@ -69,21 +73,19 @@ impl AsRef<TransactionData> for Evaluation {
 impl Evaluation {
     /// Takes an inspection and reduces it to the data format which will be pushed
     /// to the database.
-    pub async fn new<T: Middleware>(
+    pub async fn new<T: Middleware + 'static>(
         tx: TransactionData,
         prices: &HistoricalPrice<T>,
         gas_used: U256,
         gas_price: U256,
-    ) -> Result<Self, EvalError<T>>
-    where
-        T: 'static,
-    {
+    ) -> Result<Self, EvalError<T>> {
         // TODO: Figure out how to sum up liquidations & arbs while pruning
         // aggressively
         // TODO: If an Inspection is CHECKED and contains >1 trading protocol,
         // then probably this is an Arbitrage?
         let mut actions = HashSet::new();
         let mut profit = U256::zero();
+
         for action in tx.actions() {
             // set their action type
             use SpecificAction::*;
@@ -97,6 +99,12 @@ impl Evaluation {
                 Trade(_) => {
                     actions.insert(ActionType::Trade);
                 }
+                AddLiquidity(_) => {
+                    actions.insert(ActionType::AddLiquidity);
+                }
+                RemoveLiquidity(_) => {
+                    actions.insert(ActionType::RemoveLiquidity);
+                }
                 _ => {}
             };
 
@@ -104,7 +112,6 @@ impl Evaluation {
             if tx.status != Status::Success {
                 continue;
             }
-
             match action.deref() {
                 SpecificAction::Arbitrage(arb) => {
                     if arb.profit > 0.into() {
@@ -157,7 +164,7 @@ impl Evaluation {
         }
 
         Ok(Evaluation {
-            tx: tx,
+            tx,
             gas_used,
             gas_price,
             actions,

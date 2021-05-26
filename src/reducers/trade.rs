@@ -87,8 +87,11 @@ impl TxReducer for TradeReducer {
                     .map(|call| (idx, action, transfer, call))
             })
         {
-            // handle uniswap transfers/swaps differently, where we're only interested in continuous swaps
-            if call.protocol.map(|p| p.is_uniswap()).unwrap_or_default()
+            // handle uniswap+sushiswap transfers/swaps differently, where we're only interested in continuous transfers
+            if call
+                .protocol
+                .map(|p| p.is_uniswap() || p.is_sushi_swap())
+                .unwrap_or_default()
                 && call.classification.is_swap()
             {
                 // find the transfer prior to this call that forms a trade

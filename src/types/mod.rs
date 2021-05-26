@@ -9,7 +9,8 @@ pub use classification::Classification;
 pub use evaluation::{EvalError, Evaluation};
 pub use inspection::Inspection;
 
-use crate::types::actions::{Arbitrage, Liquidation, Trade, Transfer};
+use crate::addresses::PROTOCOLS;
+use crate::types::actions::{Arbitrage, Liquidation, ProfitableLiquidation, Trade, Transfer};
 use crate::{
     addresses::{DYDX, FILTER, ZEROX},
     is_subtrace,
@@ -429,7 +430,7 @@ impl TransactionData {
         Ok(inspection)
     }
 
-    /// All distinct protocols within this transaction
+    /// All distinct protocols that associated with this tx
     pub fn protocols(&self) -> HashSet<Protocol> {
         let mut protos = HashSet::new();
         if let Some(proto) = self.protocol {
@@ -696,6 +697,56 @@ impl TransactionData {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct TokenTransfer {
+    pub from: Address,
+    pub token: Address,
+    pub to: Address,
+    pub value: U256,
+    pub log_index: U256,
+}
+
+/// Decodes two `Transfer` events that happen right before the event with the given `log_index`
+///
+/// Returns (first, second) transfers that happen before the given `log_index`
+pub(crate) fn decode_token_transfers_prior(
+    call: &InternalCall,
+    tx: &TransactionData,
+    log_index: U256,
+) -> Option<(TokenTransfer, TokenTransfer)> {
+    use crate::inspectors::erc20;
+    let logs_by = tx
+        .call_logs(&call.trace_address)
+        .map(|(_, l)| l.log_index)
+        .collect::<HashSet<_>>();
+    let mut transfers = tx
+        .logs_prior_decoded::<erc20::TransferFilter>(log_index)
+        .filter(|(l, _)| logs_by.contains(&l.log_index));
+
+    if let (Some((log_1, transfer_1)), Some((log_0, transfer_0))) =
+        (transfers.next(), transfers.next())
+    {
+        let transfer_1 = TokenTransfer {
+            from: call.to,
+            to: transfer_1.to,
+            token: log_1.address,
+            value: transfer_1.value,
+            log_index: log_1.log_index,
+        };
+
+        let transfer_0 = TokenTransfer {
+            from: call.to,
+            to: transfer_0.to,
+            token: log_0.address,
+            value: transfer_0.value,
+            log_index: log_0.log_index,
+        };
+        Some((transfer_0, transfer_1))
+    } else {
+        None
+    }
+}
+
 pub struct ActionsIter<'a> {
     iter: std::slice::Iter<'a, Action>,
     calls: &'a [InternalCall],
@@ -715,6 +766,13 @@ impl<'a> ActionsIter<'a> {
             .as_slice()
             .iter()
             .filter_map(|action| action.inner.as_liquidation())
+    }
+
+    pub fn profitable_liquidations(&self) -> impl Iterator<Item = &'a ProfitableLiquidation> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| action.inner.as_profitable_liquidation())
     }
 
     pub fn transfers(&self) -> impl Iterator<Item = &'a Transfer> {

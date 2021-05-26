@@ -59,7 +59,6 @@ impl DefiProtocol for Aave {
     }
 
     fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
-        dbg!(call.classification);
         match call.classification {
             CallClassification::Liquidation => {
                 // eventually emitted by the liquidation manager
