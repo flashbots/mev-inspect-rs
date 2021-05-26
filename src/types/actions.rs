@@ -109,6 +109,13 @@ impl SpecificAction {
             _ => None,
         }
     }
+
+    pub fn as_remove_liquidity(&self) -> Option<&RemoveLiquidity> {
+        match self {
+            SpecificAction::RemoveLiquidity(inner) => Some(inner),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, PartialOrd, PartialEq)]

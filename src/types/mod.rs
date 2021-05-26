@@ -10,7 +10,9 @@ pub use evaluation::{EvalError, Evaluation};
 pub use inspection::Inspection;
 
 use crate::addresses::PROTOCOLS;
-use crate::types::actions::{Arbitrage, Liquidation, ProfitableLiquidation, Trade, Transfer};
+use crate::types::actions::{
+    AddLiquidity, Arbitrage, Liquidation, ProfitableLiquidation, RemoveLiquidity, Trade, Transfer,
+};
 use crate::{
     addresses::{DYDX, FILTER, ZEROX},
     is_subtrace,
@@ -780,6 +782,20 @@ impl<'a> ActionsIter<'a> {
             .as_slice()
             .iter()
             .filter_map(|action| action.inner.as_transfer())
+    }
+
+    pub fn add_liquidity(&self) -> impl Iterator<Item = &'a AddLiquidity> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| action.inner.as_add_liquidity())
+    }
+
+    pub fn remove_liquidity(&self) -> impl Iterator<Item = &'a RemoveLiquidity> {
+        self.iter
+            .as_slice()
+            .iter()
+            .filter_map(|action| action.inner.as_remove_liquidity())
     }
 
     pub fn trades(&self) -> impl Iterator<Item = &'a Trade> {
