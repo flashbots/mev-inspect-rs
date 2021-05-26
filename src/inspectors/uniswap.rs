@@ -91,25 +91,42 @@ impl DefiProtocol for Uniswap {
                 // `addLiquidity` calls `transferFrom` twice resulting in two `Transfer` events (tokenA, tokenB)
                 // https://github.com/Uniswap/uniswap-v2-periphery/blob/master/contracts/UniswapV2Router02.sol#L73-L74
                 // for addLiquidityEth its (token, WETH)
-                if let Some((_, mint_log, _)) = tx
+                if let Some((_, mint_log, mint)) = tx
                     .call_logs_decoded::<unipair_mod::MintFilter>(&call.trace_address)
                     .next()
                 {
-                    if let Some((transfer_0, transfer_1)) =
-                        decode_token_transfers_prior(call, tx, mint_log.log_index)
-                    {
+                    // the pair's `mint` function emits at least 1 and at most 2 transfers from address 0, the actual token transfers happen before that
+                    // https://github.com/Uniswap/uniswap-v2-core/blob/master/contracts/UniswapV2Pair.sol#L126-L128
+                    let mut logs = vec![mint_log.log_index];
+                    let mut transfer_0 = None;
+                    let mut transfer_1 = None;
+
+                    let mut transfers = tx
+                        .logs_prior_decoded::<erc20::TransferFilter>(mint_log.log_index)
+                        .take(4);
+                    while let Some((log, transfer)) = transfers.next() {
+                        if !transfer.from.is_zero() {
+                            // found the first transfer not from address(0)
+                            transfer_1 = Some(log);
+                            transfer_0 = transfers.next().map(|(l, _)| l);
+                            // found all add liquidity related transfers
+                            break;
+                        } else {
+                            logs.push(log.log_index)
+                        }
+                    }
+
+                    if let (Some(transfer_0), Some(transfer_1)) = (transfer_0, transfer_1) {
+                        logs.push(transfer_1.log_index);
+                        logs.push(transfer_0.log_index);
                         let action = AddLiquidityAct {
-                            tokens: vec![transfer_0.token, transfer_1.token],
-                            amounts: vec![transfer_0.value, transfer_1.value],
+                            tokens: vec![transfer_0.address, transfer_1.address],
+                            amounts: vec![mint.amount_0, mint.amount_1],
                         };
                         return Some(Action::with_logs(
                             action.into(),
                             call.trace_address.clone(),
-                            vec![
-                                transfer_0.log_index,
-                                transfer_1.log_index,
-                                mint_log.log_index,
-                            ],
+                            logs.into_iter().rev().collect(),
                         ));
                     }
                 }
