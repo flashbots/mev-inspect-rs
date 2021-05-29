@@ -834,53 +834,98 @@ fn u256_decimal(src: U256) -> Result<Decimal, rust_decimal::Error> {
 
 #[cfg(all(test, feature = "postgres-tests"))]
 mod tests {
-    use super::*;
-    use crate::types::evaluation::ActionType;
-    use crate::types::Inspection;
-    use ethers::types::{Address, TxHash};
     use std::collections::HashSet;
 
-    /// This expects postgres running on localhost:5432 with user `postgres` and table `mev_inspections_test`
-    #[tokio::test]
-    async fn insert_eval() {
-        let mut config = Config::default();
-        config.host("localhost").user("postgres");
-        let client = MevDB::connect(config, "mev_inspections_test")
-            .await
-            .unwrap();
-        let _ = client.clear().await;
-        client.create().await.unwrap();
+    use crate::test_helpers::{get_tx, test_inspector};
+    use crate::types::evaluation::ActionType;
 
-        let inspection = Inspection {
-            status: crate::types::Status::Checked,
-            actions: Vec::new(),
-            protocols: HashSet::new(),
-            from: Address::zero(),
-            contract: Address::zero(),
-            proxy_impl: None,
-            hash: TxHash::zero(),
-            block_number: 9,
-            transaction_position: 0,
-            internal_calls: vec![],
-        };
+    use super::*;
+
+    /// This expects postgres running on localhost:5432 with user `postgres` and table `mev_inspections_test`
+    async fn mock_mevdb() -> MevDB {
+        let mut config = Config::default();
+        config
+            .host("localhost")
+            .user("postgres")
+            .dbname("mev_inspections_test");
+        MevDB::connect(config).await.unwrap()
+    }
+
+    fn mock_evaluation() -> Evaluation {
+        let mut tx = get_tx("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
+        let inspector = test_inspector();
+        inspector.inspect_tx(&mut tx);
+        inspector.reduce_tx(&mut tx);
+
         let actions = [ActionType::Liquidation, ActionType::Arbitrage]
             .iter()
             .cloned()
             .collect::<HashSet<_>>();
-        let evaluation = Evaluation {
-            tx: inspection,
+
+        Evaluation {
+            protocols: tx.protocols(),
+            tx,
             gas_used: 21000.into(),
             gas_price: (100e9 as u64).into(),
             actions,
             profit: (1e18 as u64).into(),
-        };
+        }
+    }
 
+    #[tokio::test]
+    async fn insert_all() {
+        let client = mock_mevdb()
+            .await
+            .with_insert_filter(InsertFilter::InsertAll);
+        let _ = client.redo_migration().await;
+
+        let evaluation = mock_evaluation();
+        client.insert(&evaluation).await.unwrap();
+        client.revert_migration().await?;
+    }
+
+    #[tokio::test]
+    async fn insert_eval_only() {
+        let client = mock_mevdb()
+            .await
+            .with_insert_filter(InsertFilter::EvaluationOnly);
+
+        let _ = client.redo_migration().await;
+
+        let evaluation = mock_evaluation();
         client.insert(&evaluation).await.unwrap();
 
+        assert_eq!(
+            client
+                .select_transaction(evaluation.tx.hash)
+                .await
+                .unwrap()
+                .tx
+                .hash,
+            evaluation.tx.hash
+        );
         assert!(client.exists(evaluation.as_ref().hash).await.unwrap());
 
-        // conflicts get ignored
-        client.insert(&evaluation).await.unwrap();
-        client.clear().await.unwrap();
+        assert_eq!(
+            client.latest_block().await.unwrap(),
+            evaluation.tx.block_number
+        );
+
+        let selected = client.select_where_eoa(evaluation.tx.from).await.unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].tx.hash, evaluation.tx.hash);
+        assert_eq!(&selected[0].actions, &evaluation.actions);
+
+        for proto in evaluation.protocols.iter().cloned() {
+            let selected = client.select_where_protocols(&[proto]).await.unwrap();
+            assert_eq!(selected.len(), 1);
+        }
+
+        for action in evaluation.actions.iter().cloned() {
+            let selected = client.select_where_actions(&[action]).await.unwrap();
+            assert_eq!(selected.len(), 1);
+        }
+
+        client.revert_migration().await.unwrap();
     }
 }
