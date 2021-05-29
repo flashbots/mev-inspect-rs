@@ -77,7 +77,7 @@ impl DefiProtocol for Curve {
             }
             CallClassification::Swap => {
                 // find the swap log
-                if let Some((swap_call, swap_log, _)) = tx
+                if let Some((_, swap_log, _)) = tx
                     .call_logs_decoded::<curvepool_mod::TokenExchangeFilter>(&call.trace_address)
                     .next()
                 {

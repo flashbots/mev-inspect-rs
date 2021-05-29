@@ -1,9 +1,12 @@
+use crate::inspectors::*;
 use crate::model::EventLog;
+use crate::reducers::*;
 use crate::types::{inspection::TraceWrapper, Classification, Inspection, Status, TransactionData};
+use crate::BatchInspector;
 use ethers::types::{Address, Log, Trace, TxHash};
 use once_cell::sync::Lazy;
-use serde::__private::TryFrom;
 use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 use std::{collections::HashSet, convert::TryInto};
 
 pub const TRACE: &str = include_str!("../../res/11017338.trace.json");
@@ -81,6 +84,24 @@ pub fn get_tx(hash: &str) -> TransactionData {
         .filter_map(|(traces, logs)| TransactionData::create(traces.into_iter(), logs).ok())
         .next()
         .unwrap()
+}
+
+pub fn test_inspector() -> BatchInspector {
+    BatchInspector::new(
+        vec![
+            Box::new(ZeroEx::default()),
+            Box::new(Aave::new()),
+            Box::new(Balancer::default()),
+            Box::new(Uniswap::default()),
+            Box::new(Curve::new(vec![])),
+            Box::new(ERC20::new()),
+        ],
+        vec![
+            Box::new(TradeReducer),
+            Box::new(LiquidationReducer),
+            Box::new(ArbitrageReducer),
+        ],
+    )
 }
 
 pub fn get_trace(hash: &str) -> Inspection {

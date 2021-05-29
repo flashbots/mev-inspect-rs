@@ -17,7 +17,6 @@ use crate::{
     },
     DefiProtocol, ProtocolContracts,
 };
-use std::collections::HashSet;
 
 // Type aliases for Uniswap's `swap` return types
 type SwapTokensFor = (U256, U256, Vec<Address>, Address, U256);

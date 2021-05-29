@@ -17,8 +17,7 @@ use thiserror::Error;
 
 use crate::mevdb::BatchInserts;
 use crate::model::EventLog;
-use crate::types::inspection::TraceWrapper;
-use crate::types::{EvalError, Evaluation, Inspection, TransactionData};
+use crate::types::{EvalError, Evaluation, TransactionData};
 use crate::{DefiProtocol, HistoricalPrice, MevDB, TxReducer};
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -275,25 +274,6 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
                                 .push_back((tx, gas_used, gas_price));
                         }
                     }
-
-                    // for inspection in this.inspector.inspect_many(traces) {
-                    //     let gas_used = gas_used_txs
-                    //         .get(&inspection.hash)
-                    //         .cloned()
-                    //         .unwrap_or_default();
-                    //
-                    //     let gas_price = gas_price_txs
-                    //         .get(&inspection.hash)
-                    //         .cloned()
-                    //         .unwrap_or_default();
-                    //
-                    //     if this.evaluations_queue.len() < this.max {
-                    //         this.queue_in_evaluation(inspection, gas_used, gas_price)
-                    //     } else {
-                    //         this.waiting_inspections
-                    //             .push_back((inspection, gas_used, gas_price));
-                    //     }
-                    // }
                 }
                 Poll::Ready(Some(Err(err))) => {
                     return {
@@ -377,27 +357,8 @@ mod tests {
         set,
         test_helpers::*,
         types::{Protocol, Status},
-        Inspector, Reducer,
     };
     use ethers::types::U256;
-
-    fn inspector() -> BatchInspector {
-        BatchInspector::new(
-            vec![
-                Box::new(Aave::new()),
-                Box::new(ZeroEx::default()),
-                Box::new(Balancer::default()),
-                Box::new(Uniswap::default()),
-                Box::new(Curve::new(vec![])),
-                Box::new(ERC20::new()),
-            ],
-            vec![
-                Box::new(TradeReducer),
-                Box::new(LiquidationReducer),
-                Box::new(ArbitrageReducer),
-            ],
-        )
-    }
 
     #[test]
     // call that starts from a bot but has a uniswap sub-trace
@@ -409,7 +370,7 @@ mod tests {
     fn aave_uni_liquidation() {
         let mut tx = get_tx("0x93690c02fc4d58734225d898ea4091df104040450c0f204b6bf6f6850ac4602f");
 
-        let inspector = inspector();
+        let inspector = test_inspector();
         inspector.inspect_tx(&mut tx);
         inspector.reduce_tx(&mut tx);
 
@@ -438,7 +399,7 @@ mod tests {
     fn balancer_uni_arb_2() {
         let mut tx = get_tx("0x46f4a4d409b44d85e64b1722b8b0f70e9713eb16d2c89da13cffd91486442627");
 
-        let inspector = inspector();
+        let inspector = test_inspector();
         inspector.inspect_tx(&mut tx);
         inspector.reduce_tx(&mut tx);
 
@@ -456,7 +417,7 @@ mod tests {
     fn balancer_uni_arb2() {
         let mut tx = get_tx("0x1d9a2c8bfcd9f6e133c490d892fe3869bada484160a81966e645616cfc21652a");
 
-        let inspector = inspector();
+        let inspector = test_inspector();
         inspector.inspect_tx(&mut tx);
         inspector.reduce_tx(&mut tx);
 
@@ -498,7 +459,7 @@ mod tests {
     fn bot_selfdestruct() {
         let mut tx = read_tx("bot_selfdestruct.data.json");
 
-        let inspector = inspector();
+        let inspector = test_inspector();
         inspector.inspect_tx(&mut tx);
         inspector.reduce_tx(&mut tx);
 
@@ -514,7 +475,7 @@ mod tests {
     fn dydx_aave_liquidation() {
         let mut tx = read_tx("dydx_loan.data.json");
 
-        let inspector = inspector();
+        let inspector = test_inspector();
         inspector.inspect_tx(&mut tx);
         inspector.reduce_tx(&mut tx);
 
@@ -536,7 +497,7 @@ mod tests {
     fn liquidation1() {
         let mut tx = read_tx("liquidation_1.data.json");
 
-        let inspector = inspector();
+        let inspector = test_inspector();
         inspector.inspect_tx(&mut tx);
         inspector.reduce_tx(&mut tx);
 
@@ -582,7 +543,7 @@ mod tests {
     fn zapper_no_false_positive() {
         let mut tx = read_tx("zapper1.data.json");
 
-        let inspector = inspector();
+        let inspector = test_inspector();
         inspector.inspect_tx(&mut tx);
         inspector.reduce_tx(&mut tx);
 
