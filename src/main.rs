@@ -119,13 +119,19 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
     let processor = BatchInspector::new(inspectors, reducers);
 
     // TODO: Pass overwrite parameter
-    let db = MevDB::connect(opts.db_cfg, &opts.db_table).await?;
-    db.create().await?;
+    let mut db = MevDB::connect(opts.db_cfg)
+        .await?
+        .with_table_name(&opts.db_table);
+
     if opts.reset {
-        db.clear().await?;
-        db.create().await?;
+        db.redo_migration().await?
+    } else {
+        db.run_migration().await?;
     }
     log::debug!("created mevdb table");
+
+    db.prepare_statements().await?;
+    log::debug!("prepared mevdb statements");
 
     if let Some(cmd) = opts.cmd {
         match cmd {
