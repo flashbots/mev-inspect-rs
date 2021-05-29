@@ -19,6 +19,7 @@ serde = "1.0.126"
 # postgres connection
 tokio = { version = "1.6.0", features = ["macros", "rt-multi-thread"] }
 tokio-postgres = "0.7.2"
+postgres-types = {version = "0.2", features = ["derive"]}
 rust_decimal = { version = "1.13.0", features = ["db-postgres", "db-tokio-postgres"] }
 gumdrop = "0.8.0"
 futures = "0.3.15"

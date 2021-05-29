@@ -1326,6 +1326,7 @@ dependencies = [
  "itertools",
  "log",
  "once_cell",
+ "postgres-types",
  "pretty_env_logger",
  "rust_decimal",
  "serde",
@@ -1606,6 +1607,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "postgres-derive"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c857dd221cb0e7d8414b894a0ce29eae44d453dda0baa132447878e75e701477"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "postgres-protocol"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1631,6 +1643,7 @@ checksum = "430f4131e1b7657b0cd9a2b0c3408d77c9a43a042d300b8c77f981dffcc43a2f"
 dependencies = [
  "bytes",
  "fallible-iterator",
+ "postgres-derive",
  "postgres-protocol",
 ]
 

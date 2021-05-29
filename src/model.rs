@@ -1,14 +1,21 @@
 //! Database model types
-use crate::mevdb::DbError;
-use crate::types::Protocol;
+use std::cmp::Ordering;
+use std::convert::TryFrom;
+use std::fmt;
+
 use ethers::abi::RawLog;
 use ethers::types::*;
 use rust_decimal::prelude::{FromStr, ToPrimitive};
 use rust_decimal::Decimal;
-use std::convert::TryFrom;
-use std::fmt;
-use tokio_postgres::row::RowIndex;
-use tokio_postgres::Row;
+use tokio_postgres::{
+    row::RowIndex,
+    types::{FromSql, ToSql},
+    Row,
+};
+
+use crate::is_subtrace;
+use crate::mevdb::DbError;
+use crate::types::Protocol;
 
 /// Helper trait to convert from `tokio_postgres::Row`
 pub trait SqlRowExt {
@@ -86,68 +93,33 @@ impl FromSqlExt for Row {
     }
 }
 
-/// Representation of a Defi protocol address
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ProtocolAddress {
-    /// The address of the contract
-    pub address: Address,
-    /// name of the protocol
-    pub name: String,
-}
-
-impl SqlRowExt for ProtocolAddress {
-    fn from_row(row: &Row) -> Result<Self, DbError>
-    where
-        Self: Sized,
-    {
-        let address = row.try_get_address("address")?;
-        let name = row.try_get("name")?;
-        Ok(Self { address, name })
-    }
-}
-
-/// Representation of a contract that's either a token, proxy, router
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ProtocolJunctionAddress {
-    /// The address of the contract
-    pub address: Address,
-    /// name of the protocol
-    pub name: String,
-    /// additional information
-    pub info: String,
-}
-
-impl SqlRowExt for ProtocolJunctionAddress {
-    fn from_row(row: &Row) -> Result<Self, DbError>
-    where
-        Self: Sized,
-    {
-        let address = row.try_get_address("address")?;
-        let name = row.try_get("name")?;
-        let info = row.try_get("info")?;
-        Ok(Self {
-            address,
-            name,
-            info,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Hash, ToSql, FromSql)]
+#[postgres(name = "call_classification")]
 pub enum CallClassification {
+    #[postgres(name = "unknown")]
     Unknown,
+    #[postgres(name = "deposit")]
     Deposit,
+    #[postgres(name = "withdrawal")]
     Withdrawal,
+    #[postgres(name = "transfer")]
     Transfer,
+    #[postgres(name = "liquidation")]
     Liquidation,
+    #[postgres(name = "addliquidity")]
     AddLiquidity,
+    #[postgres(name = "removeliquidity")]
     RemoveLiquidity,
+    #[postgres(name = "repay")]
     Repay,
+    #[postgres(name = "borrow")]
     Borrow,
     /// A swap
     /// TODO clarify: may also be a flash swap, since "all swaps are actually flash swaps"
     ///  https://uniswap.org/docs/v2/smart-contract-integration/using-flash-swaps/
+    #[postgres(name = "swap")]
     Swap,
+    #[postgres(name = "flashswap")]
     FlashSwap,
 }
 
@@ -227,6 +199,77 @@ impl InternalCall {
     }
 }
 
+impl Eq for InternalCall {}
+
+impl PartialOrd for InternalCall {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for InternalCall {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.trace_address.is_empty() {
+            Ordering::Less
+        } else if other.trace_address.is_empty() {
+            Ordering::Greater
+        } else if is_subtrace(&self.trace_address, &other.trace_address) {
+            Ordering::Greater
+        } else if is_subtrace(&other.trace_address, &self.trace_address) {
+            Ordering::Less
+        } else {
+            for idx in 0..std::cmp::min(self.trace_address.len(), other.trace_address.len()) {
+                if self.trace_address[idx] > other.trace_address[idx] {
+                    return Ordering::Greater;
+                } else if self.trace_address[idx] < other.trace_address[idx] {
+                    return Ordering::Less;
+                }
+            }
+            self.trace_address.len().cmp(&other.trace_address.len())
+        }
+    }
+}
+
+/// Helper enum that mirrors `CallType`
+#[derive(Debug, ToSql, FromSql)]
+#[postgres(name = "call_type")]
+pub(crate) enum SqlCallType {
+    #[postgres(name = "none")]
+    None,
+    #[postgres(name = "call")]
+    Call,
+    #[postgres(name = "callcode")]
+    CallCode,
+    #[postgres(name = "delegatecall")]
+    DelegateCall,
+    #[postgres(name = "staticcall")]
+    StaticCall,
+}
+
+impl From<CallType> for SqlCallType {
+    fn from(c: CallType) -> Self {
+        match c {
+            CallType::None => SqlCallType::None,
+            CallType::Call => SqlCallType::Call,
+            CallType::CallCode => SqlCallType::CallCode,
+            CallType::DelegateCall => SqlCallType::DelegateCall,
+            CallType::StaticCall => SqlCallType::StaticCall,
+        }
+    }
+}
+
+impl Into<CallType> for SqlCallType {
+    fn into(self) -> CallType {
+        match self {
+            SqlCallType::None => CallType::None,
+            SqlCallType::Call => CallType::Call,
+            SqlCallType::CallCode => CallType::CallCode,
+            SqlCallType::DelegateCall => CallType::DelegateCall,
+            SqlCallType::StaticCall => CallType::StaticCall,
+        }
+    }
+}
+
 impl SqlRowExt for InternalCall {
     fn from_row(row: &Row) -> Result<Self, DbError>
     where
@@ -248,10 +291,8 @@ impl SqlRowExt for InternalCall {
         let gas_used = row.try_get_u256("gas_used")?;
         let from = row.try_get_address("caller")?;
         let to = row.try_get_address("callee")?;
-        let classification = CallClassification::from_str(row.try_get("classification")?)
-            .map_err(DbError::FromSqlError)?;
-        let call_type =
-            call_type_from_str(row.try_get("call_type")?).map_err(DbError::FromSqlError)?;
+        let classification = row.try_get("classification")?;
+        let call_type: SqlCallType = row.try_get("call_type")?;
 
         let protocol = if let Ok(proto) = row.try_get("protocol") {
             Some(Protocol::from_str(proto).map_err(DbError::FromSqlError)?)
@@ -262,7 +303,7 @@ impl SqlRowExt for InternalCall {
         Ok(Self {
             transaction_hash,
             trace_address,
-            call_type,
+            call_type: call_type.into(),
             value,
             gas_used,
             from,
@@ -271,26 +312,6 @@ impl SqlRowExt for InternalCall {
             input: row.try_get("input")?,
             classification,
         })
-    }
-}
-fn call_type_from_str(s: &str) -> Result<CallType, String> {
-    match s {
-        "none" => Ok(CallType::None),
-        "call" => Ok(CallType::Call),
-        "callcode" => Ok(CallType::CallCode),
-        "delegatecall" => Ok(CallType::DelegateCall),
-        "staticcall" => Ok(CallType::StaticCall),
-        s => Err(format!("`{}` is nt a valid call type", s)),
-    }
-}
-
-fn call_type_to_str(call_type: &CallType) -> &'static str {
-    match call_type {
-        CallType::None => "none",
-        CallType::Call => "call",
-        CallType::CallCode => "callcode",
-        CallType::DelegateCall => "delegatecall",
-        CallType::StaticCall => "staticcall",
     }
 }
 

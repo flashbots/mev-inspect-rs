@@ -62,6 +62,8 @@ pub struct Evaluation {
     pub actions: HashSet<ActionType>,
     /// The money made by this transfer
     pub profit: U256,
+    /// All the protcols
+    pub protocols: HashSet<Protocol>,
 }
 
 impl AsRef<TransactionData> for Evaluation {
@@ -164,6 +166,7 @@ impl Evaluation {
         }
 
         Ok(Evaluation {
+            protocols: tx.protocols(),
             tx,
             gas_used,
             gas_price,
@@ -218,27 +221,28 @@ impl SqlRowExt for Evaluation {
             None
         };
 
-        todo!("unimplemented")
-
-        // Ok(Self {
-        //     tx: Inspection {
-        //         status,
-        //         actions: Vec::new(),
-        //         protocols,
-        //         from,
-        //         contract,
-        //         proxy_impl,
-        //         hash,
-        //         block_number,
-        //         transaction_position,
-        //         internal_calls: Vec::new(),
-        //         logs: Vec::new(),
-        //     },
-        //     gas_used,
-        //     gas_price,
-        //     actions,
-        //     profit: revenue,
-        // })
+        Ok(Self {
+            tx: TransactionData {
+                status,
+                actions: Vec::new(),
+                from,
+                contract,
+                protocol: None,
+                proxy_impl,
+                hash,
+                block_number,
+                transaction_position,
+                logs: Default::default(),
+                calls: Default::default(),
+                calls_idx: Default::default(),
+                logs_by: Default::default(),
+            },
+            protocols,
+            gas_used,
+            gas_price,
+            actions,
+            profit: revenue,
+        })
     }
 }
 

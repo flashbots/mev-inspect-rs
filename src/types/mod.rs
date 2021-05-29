@@ -9,7 +9,6 @@ pub use classification::Classification;
 pub use evaluation::{EvalError, Evaluation};
 pub use inspection::Inspection;
 
-use crate::addresses::PROTOCOLS;
 use crate::types::actions::{
     AddLiquidity, Arbitrage, Liquidation, ProfitableLiquidation, RemoveLiquidity, Trade, Transfer,
 };
@@ -485,14 +484,25 @@ impl TransactionData {
     pub fn calls(&self) -> impl Iterator<Item = &InternalCall> {
         self.calls
             .iter()
-            .filter_map(|call| call.classification.is_unknown().then(|| call))
+            .filter(|call| call.classification.is_unknown())
+    }
+    /// All the calls regardless of their classification
+    pub fn all_calls(&self) -> impl Iterator<Item = &InternalCall> {
+        self.calls.iter()
+    }
+
+    /// All the internal that are classified
+    pub fn assigned_calls(&self) -> impl Iterator<Item = &InternalCall> {
+        self.calls
+            .iter()
+            .filter(|call| !call.classification.is_unknown())
     }
 
     /// All the calls that are not resolved yet
     pub fn calls_mut(&mut self) -> impl Iterator<Item = &mut InternalCall> {
         self.calls
             .iter_mut()
-            .filter_map(|call| call.classification.is_unknown().then(|| call))
+            .filter(|call| call.classification.is_unknown())
     }
 
     /// All unassigned logs that occurred after the log
