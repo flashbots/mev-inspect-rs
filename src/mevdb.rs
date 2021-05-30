@@ -24,13 +24,13 @@ pub const DATABASE_MIGRATION_DOWN: &str =
     include_str!("../migrations/00000000000000_initial_setup/down.sql");
 
 // default table name for inspections
-const DEFAULT_MEV_INSPECTIONS_TABLE: &'static str = "mev_inspections";
+const DEFAULT_MEV_INSPECTIONS_TABLE: &str = "mev_inspections";
 
 // default table name for internal calls
-const DEFAULT_INTERNAL_CALLS_TABLE: &'static str = "internal_calls";
+const DEFAULT_INTERNAL_CALLS_TABLE: &str = "internal_calls";
 
 // default table name for event logs
-const DEFAULT_LOGS_TABLE: &'static str = "event_logs";
+const DEFAULT_LOGS_TABLE: &str = "event_logs";
 
 /// Wrapper around PostGres for storing results in the database
 pub struct MevDB {

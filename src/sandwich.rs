@@ -144,17 +144,14 @@ impl AdversaryFilter {
     pub fn find_adversary<'a>(
         &self,
         eval: &'a Evaluation,
-        remaining: impl Iterator<Item = &'a Evaluation>,
+        mut remaining: impl Iterator<Item = &'a Evaluation>,
     ) -> Option<Adversary<'a>> {
         match self {
             AdversaryFilter::SandwichTrade => {
                 if eval.actions.contains(&ActionType::Trade) {
-                    if let Some(back) = remaining
-                        .filter(|e| {
-                            eval.tx.from == e.tx.from && e.actions.contains(&ActionType::Trade)
-                        })
-                        .next()
-                    {
+                    if let Some(back) = remaining.find(|e| {
+                        eval.tx.from == e.tx.from && e.actions.contains(&ActionType::Trade)
+                    }) {
                         return Some(Adversary::SandwichTrade { front: eval, back });
                     }
                 }

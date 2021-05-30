@@ -209,20 +209,18 @@ impl PartialOrd for InternalCall {
 
 impl Ord for InternalCall {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.trace_address.is_empty() {
+        if self.trace_address.is_empty() || is_subtrace(&other.trace_address, &self.trace_address) {
             Ordering::Less
-        } else if other.trace_address.is_empty() {
+        } else if other.trace_address.is_empty()
+            || is_subtrace(&self.trace_address, &other.trace_address)
+        {
             Ordering::Greater
-        } else if is_subtrace(&self.trace_address, &other.trace_address) {
-            Ordering::Greater
-        } else if is_subtrace(&other.trace_address, &self.trace_address) {
-            Ordering::Less
         } else {
             for idx in 0..std::cmp::min(self.trace_address.len(), other.trace_address.len()) {
-                if self.trace_address[idx] > other.trace_address[idx] {
-                    return Ordering::Greater;
-                } else if self.trace_address[idx] < other.trace_address[idx] {
-                    return Ordering::Less;
+                match self.trace_address[idx] {
+                    i if i > other.trace_address[idx] => return Ordering::Greater,
+                    i if i < other.trace_address[idx] => return Ordering::Less,
+                    _ => {}
                 }
             }
             self.trace_address.len().cmp(&other.trace_address.len())
@@ -258,9 +256,9 @@ impl From<CallType> for SqlCallType {
     }
 }
 
-impl Into<CallType> for SqlCallType {
-    fn into(self) -> CallType {
-        match self {
+impl From<SqlCallType> for CallType {
+    fn from(c: SqlCallType) -> Self {
+        match c {
             SqlCallType::None => CallType::None,
             SqlCallType::Call => CallType::Call,
             SqlCallType::CallCode => CallType::CallCode,

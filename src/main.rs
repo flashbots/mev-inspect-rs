@@ -151,7 +151,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                     .collect();
 
                 let mut tx = TransactionData::create(traces, logs)
-                    .expect(&format!("Failed to create tx {:?}", opts.tx));
+                    .unwrap_or_else(|_| panic!("Failed to create tx {:?}", opts.tx));
 
                 processor.inspect_tx(&mut tx);
                 processor.reduce_tx(&mut tx);
