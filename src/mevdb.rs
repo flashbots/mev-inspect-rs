@@ -914,6 +914,11 @@ mod tests {
             .unwrap();
         assert_eq!(evals.len(), 1);
         assert_eq!(evals[&evaluation.tx.block_number].len(), 1);
+        let _ = client
+            .select_internal_calls_in_tx(evaluation.tx.hash)
+            .await
+            .unwrap();
+        let _ = client.select_logs_in_tx(evaluation.tx.hash).await.unwrap();
 
         client.revert_migration().await.unwrap();
     }

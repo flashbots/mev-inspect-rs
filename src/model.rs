@@ -209,10 +209,10 @@ impl PartialOrd for InternalCall {
 
 impl Ord for InternalCall {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.trace_address.is_empty() || is_subtrace(&other.trace_address, &self.trace_address) {
+        if self.trace_address.is_empty() || is_subtrace(&self.trace_address, &other.trace_address) {
             Ordering::Less
         } else if other.trace_address.is_empty()
-            || is_subtrace(&self.trace_address, &other.trace_address)
+            || is_subtrace(&other.trace_address, &self.trace_address)
         {
             Ordering::Greater
         } else {
@@ -292,8 +292,12 @@ impl SqlRowExt for InternalCall {
         let classification = row.try_get("classification")?;
         let call_type: SqlCallType = row.try_get("call_type")?;
 
-        let protocol = if let Ok(proto) = row.try_get("protocol") {
-            Some(Protocol::from_str(proto).map_err(DbError::FromSqlError)?)
+        let protocol = if let Ok(proto) = row.try_get::<_, &str>("protocol") {
+            if proto.is_empty() {
+                None
+            } else {
+                Some(Protocol::from_str(proto).map_err(DbError::FromSqlError)?)
+            }
         } else {
             None
         };
@@ -382,7 +386,7 @@ impl SqlRowExt for EventLog {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let data: Vec<u8> = row.try_get("topics")?;
+        let data: Vec<u8> = row.try_get("data")?;
 
         let address = row.try_get_address("address")?;
         let transaction_index = row.try_get_u64("transaction_index")?;
