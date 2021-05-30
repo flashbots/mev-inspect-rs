@@ -71,42 +71,134 @@
 
 #![allow(unused)]
 #![allow(dead_code)]
-use crate::types::Protocol;
+use crate::mevdb::DbError;
+use crate::types::evaluation::ActionType;
+use crate::types::{Evaluation, Protocol};
+use crate::MevDB;
 use ethers::types::Address;
+use std::collections::BTreeSet;
+use std::ops::Range;
 
-pub struct Detector {
-    earliest_block: Option<u64>,
-    latest_block: Option<u64>,
+#[derive(Debug, Clone)]
+pub struct SandwichDetector {
+    config: DetectorConfig,
+    /// All the blocks and their `Evaluation`
+    blocks: Vec<(u64, Vec<Evaluation>)>,
+}
+
+impl SandwichDetector {
+    /// Initialise a new detector
+    pub async fn new(mevdb: &MevDB, config: impl Into<DetectorConfig>) -> Result<Self, DbError> {
+        let config = config.into();
+        let blocks = mevdb.select_blocks(config.blocks.iter().cloned()).await?;
+        Ok(Self {
+            config,
+            blocks: blocks.into_iter().collect(),
+        })
+    }
+
+    /// Returns an iterator over all blocks
+    pub fn blocks(&self) -> impl Iterator<Item = &(u64, Vec<Evaluation>)> {
+        self.blocks.iter()
+    }
+
+    /// Returns an iterator over all the adversaries found in the selected blocks
+    pub fn adversaries(&self, filter: AdversaryFilter) -> impl Iterator<Item = (u64, Adversary)> {
+        self.blocks.iter().flat_map(move |(block, evals)| {
+            let block = *block;
+            evals
+                .iter()
+                .enumerate()
+                .filter_map(move |(idx, e)| filter.find_adversary(e, evals.iter().skip(idx)))
+                .map(move |a| (block, a))
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum AdversaryFilter {
+    SandwichTrade,
+    LiquidityProvider,
+}
+
+#[derive(Debug, Clone)]
+pub enum Adversary<'a> {
+    SandwichTrade {
+        /// The front running trade
+        front: &'a Evaluation,
+        /// The back running trade
+        back: &'a Evaluation,
+    },
+    LiquidityProvider {
+        /// The front running remove liquidity
+        remove: &'a Evaluation,
+        /// The back running add liquidity
+        add: &'a Evaluation,
+        /// The back running trade
+        trade: &'a Evaluation,
+    },
+}
+
+impl AdversaryFilter {
+    /// Determines whether this
+    pub fn find_adversary<'a>(
+        &self,
+        eval: &'a Evaluation,
+        remaining: impl Iterator<Item = &'a Evaluation>,
+    ) -> Option<Adversary<'a>> {
+        match self {
+            AdversaryFilter::SandwichTrade => {
+                if eval.actions.contains(&ActionType::Trade) {
+                    if let Some(back) = remaining
+                        .filter(|e| {
+                            eval.tx.from == e.tx.from && e.actions.contains(&ActionType::Trade)
+                        })
+                        .next()
+                    {
+                        return Some(Adversary::SandwichTrade { front: eval, back });
+                    }
+                }
+            }
+            AdversaryFilter::LiquidityProvider => {
+                if eval.actions.contains(&ActionType::RemoveLiquidity) {
+                    let mut add = None;
+                    for e in remaining {
+                        if eval.tx.from == e.tx.from {
+                            if e.actions.contains(&ActionType::AddLiquidity) {
+                                add = Some(e);
+                                continue;
+                            }
+                            if e.actions.contains(&ActionType::Trade) {
+                                if let Some(add) = add.take() {
+                                    return Some(Adversary::LiquidityProvider {
+                                        remove: eval,
+                                        add,
+                                        trade: e,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DetectorConfig {
+    blocks: BTreeSet<u64>,
     contracts: Vec<Address>,
     protocols: Vec<Protocol>,
-    eoa: Vec<Address>,
-    min_revenue: Option<u64>,
-    max_revenue: Option<u64>,
 }
 
-pub struct SandwichDetector {}
-
-pub enum SandwichAttack {}
-
-pub struct LiquidityTakerAttacker {
-    /// The attackers ETH address that executed that transactions
-    pub address: Address,
-    /// All the executed transactions
-    pub transactions: (),
-}
-
-pub struct DexTransaction {
-    input: (),
-    output: (),
-    ty: (),
-}
-
-pub enum AssetSwapTransaction {
-    XforY,
-    YforX,
-}
-
-pub enum LiquidityTransaction {
-    Add,
-    Remove,
+impl DetectorConfig {
+    pub fn new(blocks: impl IntoIterator<Item = u64>) -> Self {
+        Self {
+            blocks: blocks.into_iter().collect(),
+            contracts: vec![],
+            protocols: vec![],
+        }
+    }
 }
