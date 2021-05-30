@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -13,6 +13,7 @@ use crate::inspectors::BatchEvaluationError;
 use crate::model::{EventLog, InternalCall, SqlCallType, SqlRowExt};
 use crate::types::evaluation::ActionType;
 use crate::types::{Evaluation, Protocol};
+use itertools::Itertools;
 
 /// The SQL script to setup the database schema
 pub const DATABASE_MIGRATION_UP: &str =
@@ -276,6 +277,30 @@ impl MevDB {
             .await
     }
 
+    /// Returns all `Evaluations` group by their block number
+    pub async fn select_blocks(
+        &self,
+        blocks: impl IntoIterator<Item = u64>,
+    ) -> Result<BTreeMap<u64, Vec<Evaluation>>, DbError> {
+        let blocks = blocks
+            .into_iter()
+            .map(|block| block.to_string())
+            .collect::<Vec<_>>();
+        let clause = format!("block_number in ({})", blocks.join(","));
+        Ok(self
+            .select_where(&clause)
+            .await?
+            .into_iter()
+            .group_by(|eval| eval.tx.block_number)
+            .into_iter()
+            .map(|(num, evals)| {
+                let mut evals = evals.collect::<Vec<_>>();
+                evals.sort_by_key(|eval| eval.tx.block_number);
+                (num, evals)
+            })
+            .collect())
+    }
+
     /// Returns the latest block number stored in the database
     pub async fn latest_block(&self) -> Result<u64, DbError> {
         Ok(self
@@ -366,6 +391,8 @@ impl MevDB {
     }
 
     /// Expects the `WHERE` clause as input: `eoa = '0x2363423..'`
+    ///
+    /// *NOTE*: this returns only a bare `Evaluation` _without_ inner `InternalCall`s and `EventLog`s
     pub async fn select_where(&self, stmt: &str) -> Result<Vec<Evaluation>, DbError> {
         self.client
             .query(
@@ -881,7 +908,14 @@ mod tests {
 
         let evaluation = mock_evaluation();
         client.insert(&evaluation).await.unwrap();
-        client.revert_migration().await?;
+        let evals = client
+            .select_blocks(evaluation.tx.block_number..=evaluation.tx.block_number)
+            .await
+            .unwrap();
+        assert_eq!(evals.len(), 1);
+        assert_eq!(evals[&evaluation.tx.block_number].len(), 1);
+
+        client.revert_migration().await.unwrap();
     }
 
     #[tokio::test]
