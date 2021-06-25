@@ -1,20 +1,16 @@
+use crate::types::TransactionData;
 use crate::{
     inspectors::find_matching,
     types::{
         actions::{Arbitrage, SpecificAction},
         Classification, Inspection,
     },
-    Reducer,
+    Reducer, TxReducer,
 };
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub struct ArbitrageReducer;
-
-impl ArbitrageReducer {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl Reducer for ArbitrageReducer {
     fn reduce(&self, inspection: &mut Inspection) {
@@ -26,7 +22,8 @@ impl Reducer for ArbitrageReducer {
             .enumerate()
             .for_each(|(i, action)| {
                 // check if we got a trade
-                let trade = if let Some(trade) = action.as_action().map(|x| x.trade()).flatten() {
+                let trade = if let Some(trade) = action.as_action().map(|x| x.as_trade()).flatten()
+                {
                     trade
                 } else {
                     return;
@@ -34,7 +31,7 @@ impl Reducer for ArbitrageReducer {
 
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.trade(),
+                    |t| t.as_trade(),
                     |t| t.t2.token == trade.t1.token,
                     true,
                 );
@@ -74,6 +71,52 @@ impl Reducer for ArbitrageReducer {
     }
 }
 
+impl TxReducer for ArbitrageReducer {
+    fn reduce_tx(&self, tx: &mut TransactionData) {
+        let trades: Vec<_> = tx
+            .actions()
+            .enumerate()
+            .filter_map(|(idx, action)| action.inner.as_trade().map(|trade| (idx, action, trade)))
+            .collect();
+
+        // action index to arbitrage, if None then prune
+        let mut updates = BTreeMap::new();
+        let mut actions = trades.iter();
+
+        while let Some((idx, _, trade)) = actions.next() {
+            if let Some((reverse_idx, _, reverse_trade)) =
+                actions.clone().find(|(_, _, reverse)| {
+                    // find a reverse trade
+                    reverse.t2.token == trade.t1.token
+                })
+            {
+                if reverse_trade.t2.amount > trade.t1.amount {
+                    let arbitrage = Arbitrage {
+                        profit: reverse_trade.t2.amount.saturating_sub(trade.t1.amount),
+                        token: reverse_trade.t2.token,
+                        to: reverse_trade.t2.to,
+                    };
+
+                    updates.insert(*idx, Some(arbitrage));
+                    for i in (idx + 1)..=*reverse_idx {
+                        updates.insert(i, None);
+                    }
+                }
+            }
+        }
+        // iterating from highest index to lowest ensure `remove` is safe
+        for (idx, arbitrage) in updates.into_iter().rev() {
+            if let Some(arbitrage) = arbitrage {
+                if let Some(action) = tx.get_action_mut(idx) {
+                    action.inner = arbitrage.into();
+                }
+            } else {
+                tx.remove_action(idx);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,7 +124,7 @@ mod tests {
     use crate::types::actions::{Arbitrage, Trade, Transfer};
 
     fn test_trade_to_arbitrage(input: Vec<Classification>, expected: Vec<Classification>) {
-        let uniswap = ArbitrageReducer::new();
+        let uniswap = ArbitrageReducer;
         let mut inspection = mk_inspection(input);
         uniswap.reduce(&mut inspection);
         assert_eq!(inspection.actions, expected);

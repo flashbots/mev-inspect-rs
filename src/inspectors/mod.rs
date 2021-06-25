@@ -20,7 +20,7 @@ mod aave;
 /// An Aave inspector
 pub use aave::Aave;
 
-mod erc20;
+pub(crate) mod erc20;
 /// ERC20 Inspector, to be used for parsing subtraces involving transfer/transferFrom
 pub use erc20::ERC20;
 
