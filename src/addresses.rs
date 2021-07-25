@@ -137,6 +137,8 @@ pub static FILTER: Lazy<HashSet<Address>> = Lazy::new(|| {
     set.insert(parse_address("0xb2be281e8b11b47fec825973fc8bb95332022a54"));
     // KeeperDAO
     set.insert(parse_address("0x3d71d79c224998e608d03c5ec9b405e7a38505f0"));
+    // ParaSwap P4
+    set.insert(parse_address("0x1bd435f3c054b6e901b7b108a0ab7617c808677b"));
     set
 });
 
