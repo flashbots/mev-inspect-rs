@@ -3,19 +3,24 @@ use crate::{
     addresses::CURVE_REGISTRY,
     traits::Inspector,
     types::{actions::AddLiquidity, Classification, Inspection, Protocol},
+    DefiProtocol, ProtocolContracts,
 };
 
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::actions::{SpecificAction, Trade, Transfer};
+use crate::types::{decode_token_transfers_prior, Action, TransactionData};
 use ethers::{
     abi::parse_abi,
-    contract::decode_function_data,
     contract::{abigen, ContractError},
+    contract::{decode_function_data, BaseContract, EthLogDecode},
     providers::Middleware,
-    types::{Address, Bytes, Call as TraceCall, U256},
+    types::{Address, Call as TraceCall, U256},
 };
-use ethers::{abi::Abi, contract::BaseContract};
 use std::collections::HashMap;
 
-// Type aliases for Curve
+/// Type aliases for Curve
+/// i: int128, j: int128, _dx: uint256, _min_dy: uint256
+/// https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L447
 type Exchange = (u128, u128, U256, U256);
 
 #[derive(Debug, Clone)]
@@ -33,6 +38,104 @@ abigen!(
         find_pool_for_coins(address,address,uint256) as find_pool_for_coins2;
     }
 );
+abigen!(CurvePool, "abi/curvepool.json");
+
+impl DefiProtocol for Curve {
+    fn base_contracts(&self) -> ProtocolContracts {
+        ProtocolContracts::Dual(&self.pool, &self.pool4)
+    }
+
+    fn protocol(&self) -> Protocol {
+        Protocol::Curve
+    }
+
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        CurvePoolEvents::decode_log(&log.raw_log).is_ok()
+            || CurveRegistryEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        match call.classification {
+            CallClassification::AddLiquidity => {
+                // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L27
+                if let Some((_, log, add_liquidity)) = tx
+                    .call_logs_decoded::<AddLiquidityFilter>(&call.trace_address)
+                    .next()
+                {
+                    let tokens = self.pools.get(&call.to).cloned().unwrap_or_default();
+                    let action = AddLiquidity {
+                        tokens,
+                        amounts: add_liquidity.token_amounts.to_vec(),
+                    };
+
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                }
+            }
+            CallClassification::Swap => {
+                // find the swap log
+                if let Some((_, swap_log, _)) = tx
+                    .call_logs_decoded::<curvepool_mod::TokenExchangeFilter>(&call.trace_address)
+                    .next()
+                {
+                    // There are 2 transfers before the `TokenExchange` log
+                    // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L506
+                    if let Some((transfer_0, transfer_1)) =
+                        decode_token_transfers_prior(call, tx, swap_log.log_index)
+                    {
+                        let action = Trade {
+                            t1: Transfer {
+                                from: call.from,
+                                to: transfer_0.to,
+                                amount: transfer_0.value,
+                                token: transfer_0.token,
+                            },
+                            t2: Transfer {
+                                from: swap_log.address,
+                                to: transfer_1.to,
+                                amount: transfer_1.value,
+                                token: transfer_1.token,
+                            },
+                        };
+
+                        return Some(Action::with_logs(
+                            action.into(),
+                            call.trace_address.clone(),
+                            vec![
+                                transfer_0.log_index,
+                                transfer_1.log_index,
+                                swap_log.log_index,
+                            ],
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
+        // https://github.com/curvefi/curve-contract/blob/c6df0cf14b557b11661a474d8d278affd849d3fe/contracts/pool-templates/base/SwapTemplateBase.vy#L372
+        if self.as_add_liquidity(&call.to, &call.input).is_some() {
+            Some((CallClassification::AddLiquidity, None))
+        } else if self
+            .pool
+            .decode::<Exchange, _>("exchange", &call.input)
+            .is_ok()
+        {
+            Some((CallClassification::Swap, None))
+        } else {
+            None
+        }
+    }
+}
 
 impl Inspector for Curve {
     fn inspect(&self, inspection: &mut Inspection) {
@@ -65,9 +168,7 @@ impl Curve {
     /// Constructor
     pub fn new<T: IntoIterator<Item = (Address, Vec<Address>)>>(pools: T) -> Self {
         Self {
-            pool: serde_json::from_str::<Abi>(include_str!("../../abi/curvepool.json"))
-                .expect("could not parse Curve 2-pool abi")
-                .into(),
+            pool: BaseContract::from(CURVEPOOL_ABI.clone()),
             pool4: parse_abi(&[
                 "function add_liquidity(uint256[4] calldata amounts, uint256 deadline) external",
             ])
@@ -77,7 +178,7 @@ impl Curve {
         }
     }
 
-    fn as_add_liquidity(&self, to: &Address, data: &Bytes) -> Option<AddLiquidity> {
+    fn as_add_liquidity(&self, to: &Address, data: impl AsRef<[u8]>) -> Option<AddLiquidity> {
         let tokens = self.pools.get(to)?;
         // adapter for Curve's pool-specific abi decoding
         // TODO: Do we need to add the tripool?
@@ -91,11 +192,8 @@ impl Curve {
                 .decode::<([U256; 4], U256), _>("add_liquidity", data)
                 .map(|x| x.0.to_vec()),
             _ => return None,
-        };
-        let amounts = match amounts {
-            Ok(tokens) => tokens,
-            Err(_) => return None,
-        };
+        }
+        .ok()?;
 
         Some(AddLiquidity {
             tokens: tokens.clone(),
@@ -139,11 +237,12 @@ impl Curve {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::read_tx;
     use crate::{
         inspectors::ERC20,
         reducers::{ArbitrageReducer, TradeReducer},
         test_helpers::read_trace,
-        Reducer,
+        Reducer, TxReducer,
     };
     use ethers::providers::Provider;
     use std::convert::TryFrom;
@@ -174,18 +273,35 @@ mod tests {
             inspection.prune();
         }
 
+        fn inspect_tx(&self, tx: &mut TransactionData) {
+            self.inspector.inspect_tx(tx);
+            self.erc20.inspect_tx(tx);
+            self.reducer1.reduce_tx(tx);
+            self.reducer2.reduce_tx(tx);
+        }
+
         fn new() -> Self {
             Self {
                 inspector: Curve::new(vec![]),
                 erc20: ERC20::new(),
-                reducer1: TradeReducer::new(),
-                reducer2: ArbitrageReducer::new(),
+                reducer1: TradeReducer,
+                reducer2: ArbitrageReducer,
             }
         }
     }
 
-    #[tokio::test]
-    async fn simple_arb() {
+    #[test]
+    fn simple_arb2() {
+        let mut tx = read_tx("simple_curve_arb.data.json");
+        let inspector = MyInspector::new();
+        inspector.inspect_tx(&mut tx);
+
+        let arb = tx.actions().arbitrage().next().unwrap();
+        assert_eq!(arb.profit.to_string(), "45259140804");
+    }
+
+    #[test]
+    fn simple_arb() {
         let mut inspection = read_trace("simple_curve_arb.json");
         let inspector = MyInspector::new();
         inspector.inspect(&mut inspection);
@@ -193,7 +309,7 @@ mod tests {
         let arb = inspection
             .known()
             .iter()
-            .find_map(|x| x.as_ref().arbitrage())
+            .find_map(|x| x.as_ref().as_arbitrage())
             .cloned()
             .unwrap();
         assert_eq!(arb.profit.to_string(), "45259140804");

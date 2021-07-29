@@ -1,17 +1,13 @@
+use crate::types::TransactionData;
 use crate::{
     inspectors::find_matching,
     types::{actions::Trade, Classification, Inspection},
-    Reducer,
+    Reducer, TxReducer,
 };
+use itertools::Itertools;
+use std::collections::HashSet;
 
 pub struct TradeReducer;
-
-impl TradeReducer {
-    /// Instantiates the reducer
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl Reducer for TradeReducer {
     fn reduce(&self, inspection: &mut Inspection) {
@@ -24,7 +20,7 @@ impl Reducer for TradeReducer {
             .for_each(|(i, action)| {
                 // check if we got a transfer
                 let transfer =
-                    if let Some(transfer) = action.as_action().map(|x| x.transfer()).flatten() {
+                    if let Some(transfer) = action.as_action().map(|x| x.as_transfer()).flatten() {
                         transfer
                     } else {
                         return;
@@ -33,7 +29,7 @@ impl Reducer for TradeReducer {
                 // find the first transfer after it
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.transfer(),
+                    |t| t.as_transfer(),
                     |t| t.to == transfer.from && t.from == transfer.to && t.token != transfer.token,
                     true,
                 );
@@ -45,7 +41,6 @@ impl Reducer for TradeReducer {
                     if actions[i].trace_address().len() != actions[j].trace_address().len() {
                         return;
                     }
-
                     *action = Classification::new(
                         Trade {
                             t1: transfer.clone(),
@@ -57,7 +52,7 @@ impl Reducer for TradeReducer {
                     // If there is no follow-up transfer that uses `transfer2`, prune it:
                     let res = find_matching(
                         actions.iter().enumerate().skip(j + 1),
-                        |t| t.transfer(),
+                        |t| t.as_transfer(),
                         |t| t.to == transfer2.from && t.from == transfer2.to,
                         false,
                     );
@@ -73,6 +68,111 @@ impl Reducer for TradeReducer {
     }
 }
 
+impl TxReducer for TradeReducer {
+    fn reduce_tx(&self, tx: &mut TransactionData) {
+        let mut trades = Vec::new();
+        let mut prune = HashSet::new();
+
+        let actions: Vec<_> = tx.actions().enumerate().collect();
+
+        for (idx, action, transfer, call) in actions
+            .iter()
+            .filter_map(|(idx, action)| {
+                action
+                    .as_transfer()
+                    .map(|transfer| (*idx, action, transfer))
+            })
+            .filter_map(|(idx, action, transfer)| {
+                tx.get_call(&action.call)
+                    .map(|call| (idx, action, transfer, call))
+            })
+        {
+            // handle uniswap+sushiswap transfers/swaps differently, where we're only interested in continuous transfers
+            if call
+                .protocol
+                .map(|p| p.is_uniswap() || p.is_sushi_swap())
+                .unwrap_or_default()
+                && call.classification.is_swap()
+            {
+                // find the transfer prior to this call that forms a trade
+                if let Some((i, t1)) = actions
+                    .iter()
+                    .rev()
+                    .skip(actions.len() - idx)
+                    .filter_map(|(i, a)| a.as_transfer().map(|t| (i, t)))
+                    .next()
+                {
+                    // we make the previous transfer a trade and remove the current
+                    prune.remove(i);
+                    prune.insert(idx);
+                    trades.push((
+                        *i,
+                        Trade {
+                            t1: t1.clone(),
+                            t2: transfer.clone(),
+                        },
+                    ));
+                    continue;
+                }
+            }
+
+            // find the first transfer after it
+            if let Some((transfer2_idx, action2, transfer2)) = tx
+                .actions()
+                .enumerate()
+                .skip(idx + 1)
+                .filter_map(|(i, a)| {
+                    a.as_transfer()
+                        .filter(|t| {
+                            t.to == transfer.from
+                                && t.from == transfer.to
+                                && t.token != transfer.token
+                        })
+                        .map(|t| (i, a, t))
+                })
+                .next()
+            {
+                // only match transfers which were on the same rank of the trace
+                // trades across multiple trace levels are handled by their individual
+                // inspectors
+                if action.call.len() != action2.call.len() {
+                    continue;
+                }
+                trades.push((
+                    idx,
+                    Trade {
+                        t1: transfer.clone(),
+                        t2: transfer2.clone(),
+                    },
+                ));
+
+                // If there is no follow-up transfer that uses `transfer2`, prune it:
+                if let Some((_, action)) = tx.actions().enumerate().nth(transfer2_idx + 1) {
+                    if action
+                        .as_transfer()
+                        .filter(|t| t.to == transfer2.from && t.from == transfer2.to)
+                        .is_some()
+                    {
+                        continue;
+                    }
+                }
+                prune.insert(transfer2_idx);
+            }
+        }
+        // replace with profitable liquidation
+        for (idx, trade) in trades {
+            if let Some(action) = tx.get_action_mut(idx) {
+                action.inner = trade.into();
+            }
+        }
+
+        // loop over all actions to prune starting with the highest index
+        for idx in prune.into_iter().sorted_by(|a, b| b.cmp(a)) {
+            tx.remove_action(idx);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,7 +180,7 @@ mod tests {
     use crate::types::actions::Transfer;
 
     fn test_transfer_to_trade(input: Vec<Classification>, expected: Vec<Classification>) {
-        let uniswap = TradeReducer::new();
+        let uniswap = TradeReducer;
         let mut inspection = mk_inspection(input);
         uniswap.reduce(&mut inspection);
         assert_eq!(inspection.actions, expected);

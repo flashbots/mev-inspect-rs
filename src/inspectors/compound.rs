@@ -1,3 +1,14 @@
+use std::collections::HashMap;
+
+use ethers::{
+    abi::FunctionExt,
+    contract::{abigen, BaseContract, ContractError, EthLogDecode},
+    providers::Middleware,
+    types::{Address, Call, CallType, U256},
+};
+
+use crate::model::{CallClassification, EventLog, InternalCall};
+use crate::types::{Action, TransactionData};
 use crate::{
     actions_after,
     addresses::{CETH, COMPTROLLER, COMP_ORACLE, WETH},
@@ -6,15 +17,8 @@ use crate::{
         actions::{Liquidation, SpecificAction},
         Classification, Inspection, Protocol, Status,
     },
+    DefiProtocol, ProtocolContracts,
 };
-use ethers::{
-    abi::{Abi, FunctionExt},
-    contract::{abigen, BaseContract, ContractError},
-    providers::Middleware,
-    types::{Address, Call, CallType, U256},
-};
-
-use std::collections::HashMap;
 
 type LiquidateBorrow = (Address, U256, Address);
 type LiquidateBorrowEth = (Address, Address);
@@ -32,6 +36,7 @@ abigen!(
 );
 
 abigen!(CToken, "abi/ctoken.json",);
+abigen!(CEther, "abi/cether.json",);
 
 #[derive(Debug, Clone)]
 /// An inspector for Compound liquidations
@@ -40,6 +45,76 @@ pub struct Compound {
     cether: BaseContract,
     comptroller: BaseContract,
     ctoken_to_token: HashMap<Address, Address>,
+}
+
+impl DefiProtocol for Compound {
+    fn base_contracts(&self) -> ProtocolContracts {
+        use std::borrow::Cow::Borrowed;
+        ProtocolContracts::Multi(vec![
+            Borrowed(&self.ctoken),
+            Borrowed(&self.cether),
+            Borrowed(&self.comptroller),
+        ])
+    }
+
+    fn protocol(&self) -> Protocol {
+        Protocol::Compound
+    }
+
+    fn is_protocol_event(&self, log: &EventLog) -> bool {
+        ComptrollerEvents::decode_log(&log.raw_log).is_ok()
+            || CTokenEvents::decode_log(&log.raw_log).is_ok()
+            || CEtherEvents::decode_log(&log.raw_log).is_ok()
+    }
+
+    fn decode_call_action(&self, call: &InternalCall, tx: &TransactionData) -> Option<Action> {
+        match call.classification {
+            CallClassification::Liquidation => {
+                // https://github.com/compound-finance/compound-protocol/blob/master/contracts/CTokenInterfaces.sol#L157
+                if let Some((_, log, liquidation)) = tx
+                    .call_logs_decoded::<ctoken_mod::LiquidateBorrowFilter>(&call.trace_address)
+                    .next()
+                {
+                    let action = Liquidation {
+                        sent_token: *self.underlying(&call.to),
+                        sent_amount: liquidation.repay_amount,
+
+                        received_token: liquidation.c_token_collateral,
+                        received_amount: liquidation.seize_tokens,
+
+                        from: call.from,
+                        liquidated_user: liquidation.borrower,
+                    };
+                    return Some(Action::with_logs(
+                        action.into(),
+                        call.trace_address.clone(),
+                        vec![log.log_index],
+                    ));
+                } else {
+                    println!("liquidate decoding failed");
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    fn classify(
+        &self,
+        call: &InternalCall,
+    ) -> Option<(CallClassification, Option<SpecificAction>)> {
+        // both emit https://github.com/compound-finance/compound-protocol/blob/master/contracts/CToken.sol#L1017
+        self.cether
+            .decode::<LiquidateBorrowEth, _>("liquidateBorrow", &call.input)
+            .map(|_| CallClassification::Liquidation)
+            .or_else(|_| {
+                self.ctoken
+                    .decode::<LiquidateBorrow, _>("liquidateBorrow", &call.input)
+                    .map(|_| CallClassification::Liquidation)
+            })
+            .map(|c| (c, None))
+            .ok()
+    }
 }
 
 impl Inspector for Compound {
@@ -85,18 +160,9 @@ impl Compound {
     /// Constructor
     pub fn new<T: IntoIterator<Item = (Address, Address)>>(ctoken_to_token: T) -> Self {
         Self {
-            ctoken: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/ctoken.json"))
-                    .expect("could not parse ctoken abi")
-            }),
-            cether: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/cether.json"))
-                    .expect("could not parse ctoken abi")
-            }),
-            comptroller: BaseContract::from({
-                serde_json::from_str::<Abi>(include_str!("../../abi/comptroller.json"))
-                    .expect("could not parse ctoken abi")
-            }),
+            ctoken: BaseContract::from(CTOKEN_ABI.clone()),
+            cether: BaseContract::from(CETHER_ABI.clone()),
+            comptroller: BaseContract::from(COMPTROLLER_ABI.clone()),
             ctoken_to_token: ctoken_to_token.into_iter().collect(),
         }
     }
@@ -228,15 +294,41 @@ impl Compound {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::convert::TryFrom;
+
+    use ethers::providers::Provider;
+
     use crate::{
         addresses::{parse_address, ADDRESSBOOK},
         test_helpers::*,
         types::Status,
         Inspector,
     };
-    use ethers::providers::Provider;
-    use std::convert::TryFrom;
+
+    use super::*;
+
+    #[test]
+    // https://etherscan.io/tx/0xb7ba825294f757f8b8b6303b2aef542bcaebc9cc0217ddfaf822200a00594ed9
+    fn liquidate2() {
+        let mut tx = read_tx("compound_liquidation.data.json");
+        let ctoken_to_token = vec![(
+            parse_address("0xb3319f5d18bc0d84dd1b4825dcde5d5f7266d407"),
+            parse_address("0xe41d2489571d322189246dafa5ebde1f4699f498"),
+        )];
+        let compound = Compound::new(ctoken_to_token);
+        compound.inspect_tx(&mut tx);
+
+        let liquidation = tx.actions().liquidations().next().unwrap();
+
+        assert_eq!(ADDRESSBOOK.get(&liquidation.sent_token).unwrap(), "ZRX");
+        // cETH has 8 decimals
+        assert_eq!(liquidation.received_amount, 5250648.into());
+        // ZRX has 18 decimals
+        assert_eq!(liquidation.sent_amount, 653800000000000000u64.into());
+
+        assert!(tx.protocols().contains(&Protocol::Compound));
+        assert_eq!(tx.status, Status::Success);
+    }
 
     #[test]
     // https://etherscan.io/tx/0xb7ba825294f757f8b8b6303b2aef542bcaebc9cc0217ddfaf822200a00594ed9
@@ -252,7 +344,7 @@ mod tests {
         let liquidation = inspection
             .known()
             .iter()
-            .find_map(|x| x.as_ref().liquidation())
+            .find_map(|x| x.as_ref().as_liquidation())
             .cloned()
             .unwrap();
 

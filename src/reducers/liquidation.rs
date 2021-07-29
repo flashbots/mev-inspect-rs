@@ -1,3 +1,4 @@
+use crate::types::TransactionData;
 use crate::{
     addresses::{ETH, WETH},
     inspectors::find_matching,
@@ -5,16 +6,10 @@ use crate::{
         actions::{ProfitableLiquidation, Transfer},
         Classification, Inspection,
     },
-    Reducer,
+    Reducer, TxReducer,
 };
 
 pub struct LiquidationReducer;
-
-impl LiquidationReducer {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl Reducer for LiquidationReducer {
     fn reduce(&self, inspection: &mut Inspection) {
@@ -32,7 +27,7 @@ impl Reducer for LiquidationReducer {
             .for_each(|(i, ref mut action)| {
                 let opt = action
                     .as_action_mut()
-                    .map(|x| x.liquidation_mut())
+                    .map(|x| x.as_liquidation_mut())
                     .flatten();
                 let liquidation = if let Some(liquidation) = opt {
                     liquidation
@@ -49,7 +44,7 @@ impl Reducer for LiquidationReducer {
                 // found the transfer after, which is the one that pays us
                 let res = find_matching(
                     actions.iter().enumerate().skip(i + 1),
-                    |t| t.transfer(),
+                    |t| t.as_transfer(),
                     check_fn,
                     true,
                 );
@@ -62,7 +57,7 @@ impl Reducer for LiquidationReducer {
                     // or not
                     let res = find_matching(
                         actions.iter().enumerate(),
-                        |t| t.trade(),
+                        |t| t.as_trade(),
                         |t| t.t2.token == liq.sent_token,
                         true,
                     );
@@ -93,6 +88,101 @@ impl Reducer for LiquidationReducer {
     }
 }
 
+impl TxReducer for LiquidationReducer {
+    fn reduce_tx(&self, tx: &mut TransactionData) {
+        // 1. find all the liquidations and populate their received amount with
+        // the transfer that was their subtrace
+        // 2. find the tx right before the liquidation which has a matching token
+        // as the received token and use that to calculate the profit
+
+        let mut profitable = Vec::new();
+        let mut received_amount = Vec::new();
+        let mut prune = Vec::new();
+
+        for (liq_idx, liq) in tx
+            .actions()
+            .enumerate()
+            .filter_map(|(idx, action)| action.inner.as_liquidation().map(|action| (idx, action)))
+        {
+            // find the transfer which corresponds to this liquidation
+            if let Some((transfer_idx, received)) = tx
+                .actions()
+                .enumerate()
+                .skip(liq_idx + 1)
+                .filter_map(|(i, action)| {
+                    action
+                        .inner
+                        .as_transfer()
+                        .filter(|t| {
+                            t.to == liq.from && (t.token == liq.received_token || t.token == *ETH)
+                        })
+                        .map(|t| (i, t))
+                })
+                .next()
+            {
+                // prune the repayment subcall
+                prune.push(transfer_idx);
+                // there may be a DEX trade before the liquidation, allowing
+                // us to instantly determine if it's a profitable liquidation
+                // or not
+                if let Some(paid) = tx
+                    .actions()
+                    .enumerate()
+                    .take_while(|(i, _)| *i < liq_idx)
+                    .filter_map(|(_, action)| {
+                        action
+                            .inner
+                            .as_trade()
+                            .filter(|t| t.t2.token == liq.sent_token)
+                    })
+                    .next()
+                {
+                    let tokens_match = (received.token == paid.t1.token)
+                        || ((received.token == *ETH && paid.t1.token == *WETH)
+                            || (received.token == *WETH && paid.t1.token == *ETH));
+                    if received.amount > paid.t1.amount && tokens_match {
+                        let mut liquidation = liq.clone();
+                        liquidation.received_amount = received.amount;
+                        profitable.push((
+                            liq_idx,
+                            ProfitableLiquidation {
+                                token: paid.t1.token,
+                                liquidation,
+                                profit: received.amount - paid.t1.amount,
+                            },
+                        ));
+                        continue;
+                    }
+                }
+                received_amount.push((liq_idx, received.amount));
+            }
+        }
+
+        // replace with profitable liquidation
+        for (idx, liq) in profitable {
+            if let Some(action) = tx.get_action_mut(idx) {
+                action.inner = liq.into();
+            }
+        }
+
+        // replace received amount
+        for (idx, received) in received_amount {
+            if let Some(liq) = tx
+                .get_action_mut(idx)
+                .and_then(|a| a.inner.as_liquidation_mut())
+            {
+                liq.received_amount = received;
+            }
+        }
+
+        // sort desc
+        prune.sort_by(|a, b| b.cmp(a));
+        for idx in prune {
+            tx.remove_action(idx);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,7 +190,7 @@ mod tests {
     use crate::types::actions::{Liquidation, Trade, Transfer};
 
     fn test_profitable_liquidation(input: Vec<Classification>, expected: Vec<Classification>) {
-        let aave = LiquidationReducer::new();
+        let aave = LiquidationReducer;
         let mut inspection = mk_inspection(input);
         aave.reduce(&mut inspection);
         assert_eq!(inspection.actions, expected);

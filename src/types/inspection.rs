@@ -1,3 +1,4 @@
+use crate::model::{EventLog, InternalCall};
 use crate::{
     addresses::{DYDX, FILTER, ZEROX},
     types::{
@@ -16,6 +17,7 @@ pub struct Inspection {
 
     //////  What
     /// All the classified / unclassified actions that happened
+    // TODO drop in favor of internalvall?
     pub actions: Vec<Classification>,
 
     ///// Where
@@ -38,16 +40,21 @@ pub struct Inspection {
 
     /// The block number of this tx
     pub block_number: u64,
+
+    /// Transaction position
+    pub transaction_position: usize,
+
+    /// All internal calls non zero value
+    pub internal_calls: Vec<InternalCall>,
+
+    /// All the events produced by this transaction
+    pub logs: Vec<EventLog>,
 }
 
 impl Inspection {
-    // TODO: Is there a better way to do this without re-allocating?
-    // Maybe this? https://doc.rust-lang.org/std/vec/struct.DrainFilter.html
     pub fn prune(&mut self) {
-        self.actions = self
-            .actions
-            .iter()
-            .filter(|action| match action {
+        self.actions.retain(|action| {
+            match action {
                 // Remove any of the pruned calls
                 Classification::Prune => false,
                 // Remove calls with 2300 gas as they are probably due to
@@ -55,9 +62,8 @@ impl Inspection {
                 // taken into account.
                 Classification::Unknown(call) => call.as_ref().gas != 2300.into(),
                 Classification::Known(_) => true,
-            })
-            .cloned()
-            .collect();
+            }
+        })
     }
 
     /// Returns: types of protocols, types of actions (arb, liq), bot addresses and profit
@@ -126,6 +132,9 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
             proxy_impl: None,
             hash: trace.transaction_hash.unwrap_or_else(TxHash::zero),
             block_number: trace.block_number,
+            transaction_position: trace.transaction_position.expect("Trace has position"),
+            internal_calls: Vec::new(),
+            logs: Vec::new(),
         };
 
         inspection.actions = traces
@@ -139,6 +148,20 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
 
                 match trace.action {
                     Action::Call(call) => {
+                        // find internal calls
+                        inspection.internal_calls.push(InternalCall {
+                            transaction_hash: trace.transaction_hash.expect("tx exists"),
+                            call_type: call.call_type.clone(),
+                            trace_address: trace.trace_address.clone(),
+                            value: call.value,
+                            gas_used: call.gas,
+                            from: call.from,
+                            to: call.to,
+                            input: call.input.to_vec(),
+                            protocol: None,
+                            classification: Default::default(),
+                        });
+
                         if inspection.proxy_impl.is_none()
                             && call.call_type == CallType::DelegateCall
                             && call.from == inspection.contract

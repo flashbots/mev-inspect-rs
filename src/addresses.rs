@@ -49,7 +49,7 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
             "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc",
             "0xDcD6011f4C6B80e470D9487f5871a0Cba7C93f48", // 0x: UniswapV2Bridge
         ],
-        Protocol::Uniswap,
+        Protocol::UniswapV2,
     );
 
     let mut map = insert_many(
@@ -70,7 +70,7 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     }
 
     for addr in read_addrs("./res/v2pairs.csv") {
-        map.insert(addr, Protocol::Uniswap);
+        map.insert(addr, Protocol::UniswapV2);
     }
 
     for addr in read_addrs("./res/sushipairs.csv") {
@@ -80,13 +80,13 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
     // uni router 02
     map.insert(
         parse_address("7a250d5630B4cF539739dF2C5dAcb4c659F2488D"),
-        Protocol::Uniswap,
+        Protocol::UniswapV2,
     );
 
     // uni router 01
     map.insert(
         parse_address("f164fC0Ec4E93095b804a4795bBe1e041497b92a"),
-        Protocol::Uniswap,
+        Protocol::UniswapV2,
     );
 
     // sushi router
@@ -94,6 +94,15 @@ pub static PROTOCOLS: Lazy<HashMap<Address, Protocol>> = Lazy::new(|| {
         "d9e1cE17f2641f24aE83637ab66a2cca9C378B9F".parse().unwrap(),
         Protocol::Sushiswap,
     );
+
+    // 0x
+    map.insert(*ZEROX, Protocol::ZeroEx);
+
+    // dydx
+    map.insert(*DYDX, Protocol::DyDx);
+
+    // balancer
+    map.insert(*BALANCER_PROXY, Protocol::Balancer);
 
     insert_many(
         map,
@@ -247,6 +256,8 @@ pub static ADDRESSBOOK: Lazy<HashMap<Address, String>> = Lazy::new(|| {
         ("0x5d3a536e4d6dbd6114cc1ead35777bab948e3643", "cDAI"),
         ("0x514910771af9ca656af840dff83e8264ecf986ca", "LINK"),
         ("0x2260fac5e5542a773aa44fbcfedf7c193bc2c599", "WBTC"),
+        ("0xdac17f958d2ee523a2206206994597c13d831ec7", "USDT"),
+        ("0x57ab1ec28d129707052df4df418d58a2d46d5f51", "sUSD"),
         (
             "0x5dbcf33d8c2e976c6b560249878e6f1491bca25c",
             "yyDAI+yUSDC+yUSDT+yTUSD",
