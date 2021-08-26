@@ -43,7 +43,7 @@ mod prices;
 pub use prices::HistoricalPrice;
 
 mod bor;
-pub use bor::Provider;
+pub use bor::CachedBorProvider;
 
 /// Checks if `a2` is a subtrace of `a1`
 pub(crate) fn is_subtrace(a1: &[usize], a2: &[usize]) -> bool {

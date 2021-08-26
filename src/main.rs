@@ -2,12 +2,12 @@ use mev_inspect::{
     inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
-    BatchInserts, BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Provider,
-    Reducer,
+    BatchInserts, BatchInspector, CachedBorProvider, CachedProvider, HistoricalPrice, Inspector,
+    MevDB, Reducer,
 };
 
 use ethers::{
-    providers::{Middleware, StreamExt},
+    providers::{Middleware, Provider, StreamExt},
     types::{BlockNumber, TxHash, U256},
 };
 
@@ -82,7 +82,11 @@ async fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();
     let opts = Opts::parse_args_default_or_exit();
 
-    let bor_provider = Provider::new(opts.url)?;
+    let bor_provider = CachedBorProvider::new(
+        Provider::try_from(opts.url.as_str())?,
+        opts.clone().cache.unwrap_or_else(|| PathBuf::from("cachedir")),
+    );
+    run(bor_provider, opts).await
     // let bor_middleware = BorMiddleware::new(opts.url.as_str())?;
     // run(bor_middleware, opts).await;
 
