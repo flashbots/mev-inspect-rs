@@ -2,11 +2,12 @@ use mev_inspect::{
     inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
-    BatchInserts, BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
+    BatchInserts, BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Provider,
+    Reducer,
 };
 
 use ethers::{
-    providers::{Middleware, Provider, StreamExt},
+    providers::{Middleware, StreamExt},
     types::{BlockNumber, TxHash, U256},
 };
 
@@ -14,7 +15,8 @@ use futures::SinkExt;
 use gumdrop::Options;
 use std::io::Write;
 use std::{collections::HashMap, convert::TryFrom, path::PathBuf, sync::Arc};
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 #[derive(Debug, Options, Clone)]
 struct Opts {
@@ -80,16 +82,20 @@ async fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();
     let opts = Opts::parse_args_default_or_exit();
 
+    let bor_provider = Provider::new(opts.url)?;
+    // let bor_middleware = BorMiddleware::new(opts.url.as_str())?;
+    // run(bor_middleware, opts).await;
+
     // Instantiate the provider and read from the cached files if needed
-    if let Some(ref cache) = opts.cache {
-        let provider = CachedProvider::new(Provider::try_from(opts.url.as_str())?, cache);
-        run(provider, opts).await
-    } else {
-        error!("Provider trying");
-        let provider = Provider::try_from(opts.url.as_str())?;
-        error!("Provider success");
-        run(provider, opts).await
-    }
+    // if let Some(ref cache) = opts.cache {
+    //     let provider = CachedProvider::new(Provider::try_from(opts.url.as_str())?, cache);
+    //     run(provider, opts).await
+    // } else {
+    //     error!("Provider trying");
+    // let provider = Provider::try_from(opts.url.as_str())?;
+    //     error!("Provider success");
+    //     run(provider, opts).await
+    // }
 }
 
 async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow::Result<()> {

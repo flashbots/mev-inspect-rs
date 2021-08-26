@@ -1,17 +1,6 @@
 # <h1 align="center"> MEV Inspect </h1>
 
-**Ethereum MEV Inspector in Rust**
-</br> Further documentation on mev-inspect-rs available [here](https://docs.flashbots.net/flashbots-data/mev-inspect-rs/inspect-quick-start)
-
-## Inspectors
-
-- Curve
-- Balancer
-- Uniswap (& clones)
-- Aave
-- Compound
-- 0x
-- DyDx
+**Polygon MEV Inspector in Rust**
 
 ## Installing
 
@@ -34,6 +23,10 @@ Optional arguments:
 Available commands:
   tx      inspect a transaction
   blocks  inspect a range of blocks
+```
+Example:
+```
+./target/release/mev-inspect --db-cfg postgresql://postgres:postgres@localhost -u http://IPADDR:8545 tx 0x5243f353cf41f8394ba480e3c15fb57881a5d8ec985874520a1b322ecf2519f4
 ```
 
 ## Running the tests
