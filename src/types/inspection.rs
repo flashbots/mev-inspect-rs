@@ -97,7 +97,6 @@ impl<T: IntoIterator<Item = Trace>> TryFrom<TraceWrapper<T>> for Inspection {
 
     fn try_from(traces: TraceWrapper<T>) -> Result<Self, Self::Error> {
         let mut traces = traces.0.into_iter().peekable();
-
         // get the first trace
         let trace = match traces.peek() {
             Some(inner) => inner,
