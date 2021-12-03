@@ -149,7 +149,7 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
                         .effective_gas_price;
 
                     let evaluation = match (legacy_gas_price, effective_gas_price) {
-                        (Some(gas_price), None) => Some(Evaluation::new(inspection, &prices, gas_used, gas_price).await?),
+                        (Some(gas_price), _) => Some(Evaluation::new(inspection, &prices, gas_used, gas_price).await?),
                         (None, Some(gas_price)) => Some(Evaluation::new(inspection, &prices, gas_used, gas_price).await?),
                         _ => None,
                     }.unwrap();
