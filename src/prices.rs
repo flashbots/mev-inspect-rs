@@ -3,7 +3,7 @@ use crate::addresses::{parse_address, ETH, WETH};
 use ethers::{
     contract::{abigen, ContractError},
     providers::Middleware,
-    types::{Address, BlockNumber, U256},
+    types::{Address, BlockId, U256},
     utils::WEI_IN_ETHER,
 };
 use once_cell::sync::Lazy;
@@ -41,7 +41,7 @@ impl<M: Middleware> HistoricalPrice<M> {
 
     /// Converts any token amount to ETH by querying historical Uniswap prices
     /// at a specific block
-    pub async fn quote<T: Into<BlockNumber>, A: Into<U256>>(
+    pub async fn quote<T: Into<BlockId>, A: Into<U256>>(
         &self,
         token: Address,
         amount: A,

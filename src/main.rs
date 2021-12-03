@@ -1,5 +1,5 @@
 use mev_inspect::{
-    inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20},
+    inspectors::{Aave, Balancer, Compound, Curve, Uniswap, ZeroEx, ERC20, gas_price_txs_from_block},
     reducers::{ArbitrageReducer, LiquidationReducer, TradeReducer},
     types::Evaluation,
     BatchInserts, BatchInspector, CachedProvider, HistoricalPrice, Inspector, MevDB, Reducer,
@@ -130,21 +130,29 @@ async fn run<M: Middleware + Clone + 'static>(provider: M, opts: Opts) -> anyhow
             Command::Tx(opts) => {
                 let traces = provider.trace_transaction(opts.tx).await?;
                 if let Some(inspection) = processor.inspect_one(traces) {
-                    let gas_used = provider
+                    let transaction_receipt = provider
                         .get_transaction_receipt(inspection.hash)
                         .await?
-                        .expect("tx not found")
+                        .expect("tx not found");
+
+                    let gas_used = transaction_receipt
                         .gas_used
                         .unwrap_or_default();
 
-                    let gas_price = provider
+                    let legacy_gas_price = provider
                         .get_transaction(inspection.hash)
                         .await?
                         .expect("tx not found")
                         .gas_price;
 
-                    let evaluation =
-                        Evaluation::new(inspection, &prices, gas_used, gas_price).await?;
+                    let effective_gas_price = transaction_receipt
+                        .effective_gas_price;
+
+                    let evaluation = match (legacy_gas_price, effective_gas_price) {
+                        (Some(gas_price), None) => Some(Evaluation::new(inspection, &prices, gas_used, gas_price).await?),
+                        (None, Some(gas_price)) => Some(Evaluation::new(inspection, &prices, gas_used, gas_price).await?),
+                        _ => None,
+                    }.unwrap();
                     println!("Found: {:?}", evaluation.as_ref().hash);
                     println!("Revenue: {:?} WEI", evaluation.profit);
                     println!("Cost: {:?} WEI", evaluation.gas_used * evaluation.gas_price);
@@ -285,11 +293,12 @@ async fn process_block<M: Middleware + 'static>(
         .get_block_with_txs(block_number)
         .await?
         .expect("block should exist");
-    let gas_price_txs = block
-        .transactions
-        .iter()
-        .map(|tx| (tx.hash, tx.gas_price))
-        .collect::<HashMap<TxHash, U256>>();
+
+    let receipts = provider
+        .get_block_receipts(block_number)
+        .await?;
+
+    let gas_price_txs = gas_price_txs_from_block(&block, receipts);
 
     // get all the receipts
     let receipts = provider.parity_block_receipts(block_number).await?;

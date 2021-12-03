@@ -27,6 +27,7 @@ pub use erc20::ERC20;
 mod batch;
 /// Takes multiple inspectors
 pub use batch::{BatchEvaluationError, BatchInspector};
+pub use batch::gas_price_txs_from_block;
 
 mod compound;
 pub use compound::Compound;
