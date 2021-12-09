@@ -1,11 +1,13 @@
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::ops::Range;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use ethers::prelude::Middleware;
-use ethers::types::{Block, BlockNumber, Trace, Transaction, TransactionReceipt, TxHash, U256, H256};
+use ethers::types::{
+    Block, BlockNumber, Trace, Transaction, TransactionReceipt, TxHash, H256, U256,
+};
 use futures::{
     stream::{self, FuturesUnordered},
     Stream, StreamExt, TryFutureExt,
@@ -106,7 +108,10 @@ impl BatchInspector {
 /// for that transaction. The gas price is determined by the gasPrice parameter
 /// in non EIP-1559 transactions, and in EIP-1559 transactions it is determined
 /// by the effectiveGasPrice field of the transactions' matching receipt.
-pub fn gas_price_txs_from_block(block: &Block<Transaction>, receipts: Vec<TransactionReceipt>) -> HashMap<TxHash, U256> {
+pub fn gas_price_txs_from_block(
+    block: &Block<Transaction>,
+    receipts: Vec<TransactionReceipt>,
+) -> HashMap<TxHash, U256> {
     let (txns_eip1559, txns): (Vec<&Transaction>, Vec<&Transaction>) = block
         .transactions
         .iter()
@@ -122,7 +127,12 @@ pub fn gas_price_txs_from_block(block: &Block<Transaction>, receipts: Vec<Transa
         .clone()
         .into_iter()
         .filter(|receipt| eip1559_hashes.contains(&receipt.transaction_hash))
-        .map(|receipt| (receipt.transaction_hash, receipt.effective_gas_price.unwrap_or_default()))
+        .map(|receipt| {
+            (
+                receipt.transaction_hash,
+                receipt.effective_gas_price.unwrap_or_default(),
+            )
+        })
         .collect::<Vec<(H256, U256)>>();
 
     // we can unwrap_or_default here since txns are partitioned s.t. gas_price is Some(U256)
