@@ -1,4 +1,5 @@
 use crate::types::{inspection::TraceWrapper, Classification, Inspection, Status};
+use ethers::signers::Signer;
 use ethers::types::{Address, Trace, TxHash};
 use once_cell::sync::Lazy;
 use std::{collections::HashSet, convert::TryInto};

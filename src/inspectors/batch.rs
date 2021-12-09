@@ -1,11 +1,13 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::ops::Range;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use ethers::prelude::Middleware;
-use ethers::types::{Block, BlockNumber, Trace, Transaction, TransactionReceipt, TxHash, U256};
+use ethers::types::{
+    Block, BlockNumber, Trace, Transaction, TransactionReceipt, TxHash, H256, U256,
+};
 use futures::{
     stream::{self, FuturesUnordered},
     Stream, StreamExt, TryFutureExt,
@@ -99,6 +101,50 @@ impl BatchInspector {
     ) -> BatchEvaluator<M> {
         BatchEvaluator::new(self, provider, prices, blocks, max)
     }
+}
+
+/// Given a Block and a Vector of TransactionRecepts, gas_price_txs_from_block
+/// will return a list of tuples containing the transaction hash and gas price
+/// for that transaction. The gas price is determined by the gasPrice parameter
+/// in non EIP-1559 transactions, and in EIP-1559 transactions it is determined
+/// by the effectiveGasPrice field of the transactions' matching receipt.
+pub fn gas_price_txs_from_block(
+    block: &Block<Transaction>,
+    receipts: Vec<TransactionReceipt>,
+) -> HashMap<TxHash, U256> {
+    let (txns_eip1559, txns): (Vec<&Transaction>, Vec<&Transaction>) = block
+        .transactions
+        .iter()
+        .partition(|tx| tx.gas_price.is_none());
+
+    let eip1559_hashes = txns_eip1559
+        .into_iter()
+        .map(|txn| txn.hash)
+        .collect::<HashSet<H256>>();
+
+    // get effective gas price from the block's receipts, unwrap_or_default due to partition
+    let mut eip1559_effective_gas = receipts
+        .clone()
+        .into_iter()
+        .filter(|receipt| eip1559_hashes.contains(&receipt.transaction_hash))
+        .map(|receipt| {
+            (
+                receipt.transaction_hash,
+                receipt.effective_gas_price.unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<(H256, U256)>>();
+
+    // we can unwrap_or_default here since txns are partitioned s.t. gas_price is Some(U256)
+    let mut gas_price_legacy_txns = txns
+        .into_iter()
+        .map(|txn| (txn.hash, txn.gas_price.unwrap_or_default()))
+        .collect::<Vec<(H256, U256)>>();
+
+    gas_price_legacy_txns.append(&mut eip1559_effective_gas);
+    gas_price_legacy_txns
+        .into_iter()
+        .collect::<HashMap<TxHash, U256>>()
 }
 
 /// Get the necessary information for processing a block
@@ -234,11 +280,7 @@ impl<M: Middleware + Unpin + 'static> Stream for BatchEvaluator<M> {
             match this.block_infos.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok((traces, block, receipts)))) => {
                     log::trace!("fetched block infos for block {:?}", block.number);
-                    let gas_price_txs = block
-                        .transactions
-                        .iter()
-                        .map(|tx| (tx.hash, tx.gas_price))
-                        .collect::<HashMap<TxHash, U256>>();
+                    let gas_price_txs = gas_price_txs_from_block(&block, receipts.clone());
 
                     let gas_used_txs = receipts
                         .into_iter()
