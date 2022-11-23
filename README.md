@@ -1,7 +1,7 @@
 # <h1 align="center"> MEV Inspect </h1>
 
 **Ethereum MEV Inspector in Rust**
-</br> Further documentation on mev-inspect-rs available [here](https://docs.flashbots.net/flashbots-data/mev-inspect-rs/inspect-quick-start)
+</br> Further documentation on mev-inspect-rs available [here](https://docs.flashbots.net/flashbots-data/deprecated/mev-inspect-rs/inspect-quick-start)
 
 ## Inspectors
 
